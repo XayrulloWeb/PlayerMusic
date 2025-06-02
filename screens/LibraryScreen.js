@@ -1,35 +1,35 @@
 // screens/LibraryScreen.js
-import React, { useState, useEffect, useCallback , memo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
     View, Text, Image, TouchableOpacity, FlatList,
     ScrollView, ActivityIndicator, Platform, StatusBar,
-    Modal, TextInput, Alert, StyleSheet
+    Modal, TextInput, Alert, StyleSheet, Button
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation, useIsFocused } from '@react-navigation/native';
+import * as MediaLibrary from 'expo-media-library';
 
-// Импорт функций из хранилища
 import {
     getLikedTracksIds,
     getUserPlaylists,
     createPlaylist
-    // addTrackToPlaylist (используется внутри AddToPlaylistModal)
 } from '../utils/storage';
-
-// Импорт модального окна
 import AddToPlaylistModal from '../components/AddToPlaylistModal';
 
 // Импорт данных треков из JSON файла
-import tracksFromJson from '../assets/tracks.json';
-export const allTracksData = tracksFromJson; // Экспортируем для использования в других модулях
+import tracksFromJsonFile from '../assets/tracks.json';
+// Используем импортированные данные как основной источник всех треков
+// и экспортируем его, если он нужен в других модулях (например, PlaylistDetailScreen)
+export const allTracksData = tracksFromJsonFile;
 
-// Константы для цветов и плейсхолдеров (адаптируйте под вашу тему)
-const ICON_COLOR_PRIMARY = '#FAFAFA';        // custom-quaternary
-const ICON_COLOR_SECONDARY = '#A0A0A0';     // custom-text-secondary
-const ICON_COLOR_ACCENT = '#8DEEED';       // custom-primary
-const TEXT_COLOR_ON_ACCENT = '#030318';   // custom-tertiary
+// Константы
+const ICON_COLOR_PRIMARY = '#FAFAFA';
+const ICON_COLOR_SECONDARY = '#A0A0A0';
+const ICON_COLOR_ACCENT = '#8DEEED';
+const TEXT_COLOR_ON_ACCENT = '#030318';
+const BG_COLOR_SCREEN = '#030318';
 const DEFAULT_PLAYLIST_ARTWORK = 'https://images.unsplash.com/photo-1587329304169-f7cdf09ac800?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8N3x8cGxheWxpc3QlMjBhcnR3b3JrfGVufDB8fDB8fHww&auto=format&fit=crop&w=100&q=60';
-const DEFAULT_TRACK_ARTWORK = 'https://via.placeholder.com/50?text=🎶'; // Для треков, если нет арта
+const DEFAULT_TRACK_ARTWORK = 'https://via.placeholder.com/50?text=🎶';
 
 // --- Компонент FilterChip ---
 const FilterChip = ({ label, selected, onPress }) => (
@@ -48,7 +48,7 @@ const FilterChip = ({ label, selected, onPress }) => (
     </TouchableOpacity>
 );
 
-// --- Компонент ListItem (универсальный) ---
+// --- Компонент ListItem ---
 const ListItem = ({ item, onPress, itemType, onMoreOptionsPress }) => {
     let title = item.title || item.name || "Unknown";
     let subtitle = "Details unavailable";
@@ -62,7 +62,7 @@ const ListItem = ({ item, onPress, itemType, onMoreOptionsPress }) => {
             break;
         case 'artist':
             subtitle = `Artist • ${item.trackCount || item.tracks?.length || 0} songs`;
-            artwork = item.artwork || DEFAULT_TRACK_ARTWORK; // Можно заменить на иконку артиста
+            artwork = item.artwork || DEFAULT_TRACK_ARTWORK;
             break;
         case 'playlist':
             subtitle = `${item.trackIds?.length || item.trackCount || 0} songs`;
@@ -70,29 +70,30 @@ const ListItem = ({ item, onPress, itemType, onMoreOptionsPress }) => {
             break;
         case 'track':
             subtitle = item.artist || "Unknown Artist";
-            if (item.album && item.album !== "—" && item.artist !== item.album) {
+            if (item.isLocal) { // Specific subtitle for local files
+                subtitle = item.album && item.album !== "Unknown Album" && item.album !== "On this device" ? item.album : "On this device";
+                if (item.artist && item.artist !== "Unknown Artist") {
+                    subtitle = `${item.artist} • ${subtitle}`;
+                }
+            } else if (item.album && item.album !== "—" && item.artist !== item.album) {
                 subtitle += ` • ${item.album}`;
             }
             artwork = item.artwork || DEFAULT_TRACK_ARTWORK;
+            break;
+        default:
+            showMoreOptionsButton = false;
             break;
     }
 
     return (
         <TouchableOpacity onPress={onPress} className="flex-row items-center py-2.5 px-5 active:bg-custom-surface/50" activeOpacity={0.8}>
-            <Image
-                source={{ uri: artwork }}
-                className="w-12 h-12 rounded-md mr-4 bg-zinc-700" // bg-zinc-700 как плейсхолдер
-            />
+            <Image source={{ uri: artwork }} className="w-12 h-12 rounded-md mr-4 bg-zinc-700" />
             <View className="flex-1 justify-center">
                 <Text className="text-base font-semibold text-custom-quaternary mb-0.5" numberOfLines={1}>{title}</Text>
                 <Text className="text-xs text-custom-quaternary/70" numberOfLines={1}>{subtitle}</Text>
             </View>
             {showMoreOptionsButton && (
-                <TouchableOpacity
-                    onPress={() => onMoreOptionsPress(item, itemType)}
-                    className="p-2 ml-2.5"
-                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                >
+                <TouchableOpacity onPress={() => onMoreOptionsPress(item, itemType)} className="p-2 ml-2.5" hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                     <MaterialCommunityIcons name="dots-horizontal" size={24} color={ICON_COLOR_SECONDARY} />
                 </TouchableOpacity>
             )}
@@ -100,219 +101,213 @@ const ListItem = ({ item, onPress, itemType, onMoreOptionsPress }) => {
     );
 };
 
-// --- Основной компонент экрана LibraryScreen ---
+// Helper function to fetch and format all local audio files
+const getFormattedLocalAudioFiles = async (currentPermission) => {
+    if (currentPermission !== 'granted') return [];
+    try {
+        const media = await MediaLibrary.getAssetsAsync({
+            mediaType: MediaLibrary.MediaType.audio,
+            sortBy: [[MediaLibrary.SortBy.modificationTime, false]],
+            first: 1000, // Попробуйте с большим лимитом
+        });
+        const formattedTracks = media.assets.map(asset => ({
+            id: `local-${asset.id}`, // Unique ID for local tracks
+            title: asset.filename.replace(/\.[^/.]+$/, "") || 'Unknown Title',
+            artist: asset.artist || 'Unknown Artist',
+            album: asset.album || 'On this device', // Default album for local files
+            artwork: null, // Local files might not have readily available artwork
+            duration: Math.round(asset.duration),
+            url: asset.uri,
+            isLocal: true,
+            type: 'track',
+        }));
+        return formattedTracks;
+    } catch (error) {
+        console.error("Error fetching local audio files:", error);
+        Alert.alert("Error", "Could not fetch local audio files.");
+        return [];
+    }
+};
+
+
 export default function LibraryScreen() {
     const navigation = useNavigation();
     const isFocused = useIsFocused();
 
     const [selectedFilter, setSelectedFilter] = useState('All Songs');
+    // Removed 'Local Files' from filters
     const filters = ['All Songs', 'Playlists', 'Albums', 'Liked Songs', 'Artists', 'Downloaded'];
 
-    const [staticAllTracks, setStaticAllTracks] = useState([]); // Загруженные из JSON
-    const [userPlaylists, setUserPlaylists] = useState([]);    // Загруженные из AsyncStorage
-    const [displayedItems, setDisplayedItems] = useState([]);  // То, что показывается в FlatList
-    const [itemTypeForList, setItemTypeForList] = useState('track'); // Тип элементов в displayedItems
+    const [staticAllTracks, setStaticAllTracks] = useState([]);
+    const [userPlaylists, setUserPlaylists] = useState([]);
+    // Removed localTracks state: const [localTracks, setLocalTracks] = useState([]);
+    const [mediaLibraryPermission, setMediaLibraryPermission] = useState(null);
 
-    const [isLoadingAllTracks, setIsLoadingAllTracks] = useState(true); // Первичная загрузка allTracks
-    const [isProcessingData, setIsProcessingData] = useState(false);   // Любая последующая обработка/фильтрация
+    const [displayedItems, setDisplayedItems] = useState([]);
+    const [itemTypeForList, setItemTypeForList] = useState('track');
 
-    // Состояния для модальных окон
+    const [isLoadingStaticTracks, setIsLoadingStaticTracks] = useState(true);
+    const [isProcessingData, setIsProcessingData] = useState(false);
+
     const [isCreatePlaylistModalVisible, setIsCreatePlaylistModalVisible] = useState(false);
     const [newPlaylistName, setNewPlaylistName] = useState('');
     const [isAddToPlaylistModalVisible, setIsAddToPlaylistModalVisible] = useState(false);
     const [trackToAddToPlaylist, setTrackToAddToPlaylist] = useState(null);
 
-    // 1. Загрузка всех треков из JSON (один раз при монтировании компонента)
     useEffect(() => {
-        console.log('LibraryScreen: Mounting and loading staticAllTracks...');
-        setIsLoadingAllTracks(true);
-        setStaticAllTracks(allTracksData); // allTracksData теперь импортированы из JSON
-        setIsLoadingAllTracks(false);
-        console.log('LibraryScreen: staticAllTracks loaded from JSON:', allTracksData.length);
-    }, []); // Пустой массив зависимостей = запуск один раз
+        (async () => {
+            if (Platform.OS !== 'web') {
+                const { status } = await MediaLibrary.requestPermissionsAsync();
+                setMediaLibraryPermission(status);
+                if (status !== 'granted') {
+                    // Alert moved to empty state or specific user action
+                    // Alert.alert('Permission Required', 'Media library access is needed for local songs.');
+                }
+            } else {
+                setMediaLibraryPermission('granted'); // Assume granted for web if not using local files
+            }
+        })();
+    }, []);
 
-    // 2. Основной useEffect для загрузки данных и фильтрации
+    useEffect(() => {
+        setIsLoadingStaticTracks(true);
+        setStaticAllTracks(allTracksData);
+        setIsLoadingStaticTracks(false);
+    }, []);
+
+    // fetchLocalAudioFiles useCallback is removed as its logic is now in getFormattedLocalAudioFiles and used directly
+
     useEffect(() => {
         const loadAndFilterData = async () => {
-            if (!isFocused) {
-                console.log('LibraryScreen: Screen not focused, skipping data load.');
-                return; // Не делаем ничего, если экран не в фокусе
+            if (!isFocused) return;
+            // Adjusted condition: removed 'Local Files'
+            if (isLoadingStaticTracks && !['Playlists'].includes(selectedFilter)) {
+                setIsProcessingData(true); return;
             }
-
-            // Если isLoadingAllTracks еще true и выбран фильтр, который ЗАВИСИТ от allTracks
-            if (isLoadingAllTracks && !['Playlists'].includes(selectedFilter)) {
-                console.log(`LibraryScreen: Waiting for staticAllTracks for filter: ${selectedFilter}`);
-                setIsProcessingData(true); // Показываем общий лоадер
-                return;
-            }
-
-            console.log(`LibraryScreen: Processing filter: ${selectedFilter}`);
             setIsProcessingData(true);
             let newItems = [];
-            let newType = 'track'; // По умолчанию, если что-то пойдет не так
-
+            let newType = 'track';
             try {
-                if (selectedFilter === 'Playlists') {
-                    newType = 'playlist';
-                    const playlistsFromDb = await getUserPlaylists();
-                    newItems = playlistsFromDb.map(p => ({
-                        ...p, type: 'playlist', artwork: p.artwork || DEFAULT_PLAYLIST_ARTWORK,
-                        trackCount: p.trackIds?.length || 0,
-                    })).sort((a, b) => b.createdAt - a.createdAt);
-                    setUserPlaylists(newItems); // Сохраняем отформатированные плейлисты
-                } else if (staticAllTracks.length > 0) { // Для остальных фильтров нужны staticAllTracks
-                    switch (selectedFilter) {
-                        case 'All Songs':
-                            newType = 'track';
-                            newItems = staticAllTracks.map(t => ({ ...t, type: 'track' }));
-                            break;
-                        case 'Liked Songs':
-                            newType = 'track';
-                            const likedIds = await getLikedTracksIds();
-                            newItems = staticAllTracks.filter(track => track.id && likedIds.includes(track.id.toString()))
-                                .map(t => ({ ...t, type: 'track' }));
-                            break;
-                        case 'Albums':
-                            newType = 'album';
-                            const albums = {};
-                            staticAllTracks.forEach(track => {
-                                if (!track.album || track.album === "—") return;
-                                if (!albums[track.album]) albums[track.album] = { id: track.album, name: track.album, artwork: track.artwork, artist: track.artist, tracks: [] };
-                                albums[track.album].tracks.push(track);
-                            });
-                            newItems = Object.values(albums).map(a => ({ ...a, type: 'album' }));
-                            break;
-                        case 'Artists':
-                            newType = 'artist';
-                            const artists = {};
-                            staticAllTracks.forEach(track => {
-                                if (!track.artist) return;
-                                if (!artists[track.artist]) artists[track.artist] = { id: track.artist, name: track.artist, artwork: track.artwork, trackCount: 0, tracks: [] };
-                                artists[track.artist].trackCount++;
-                                artists[track.artist].tracks.push(track);
-                            });
-                            newItems = Object.values(artists).map(a => ({ ...a, type: 'artist' }));
-                            break;
-                        case 'Downloaded': // Mock
-                            newType = 'track';
-                            newItems = staticAllTracks.slice(0, 3).map(t => ({ ...t, type: 'track', downloadStatus: 'downloaded' }));
-                            break;
-                        default:
-                            console.warn(`LibraryScreen: Unknown filter "${selectedFilter}".`);
-                            newItems = []; // Или показать все треки как fallback
-                            break;
-                    }
-                } else if (selectedFilter !== 'Playlists') {
-                    console.warn(`LibraryScreen: staticAllTracks is empty for filter: ${selectedFilter}, cannot process.`);
+                switch (selectedFilter) {
+                    case 'Playlists':
+                        newType = 'playlist';
+                        const playlistsFromDb = await getUserPlaylists();
+                        newItems = playlistsFromDb.map(p => ({ ...p, type: 'playlist', artwork: p.artwork || DEFAULT_PLAYLIST_ARTWORK, trackCount: p.trackIds?.length || 0 })).sort((a, b) => b.createdAt - a.createdAt);
+                        setUserPlaylists(newItems);
+                        break;
+                    // 'Local Files' case removed
+                    case 'All Songs':
+                        newType = 'track';
+                        let combinedSongs = staticAllTracks.map(t => ({ ...t, type: 'track' }));
+                        if (mediaLibraryPermission === 'granted' && Platform.OS !== 'web') {
+                            const localAudio = await getFormattedLocalAudioFiles(mediaLibraryPermission);
+                            // Combine and ensure local tracks are identifiable
+                            combinedSongs = [...combinedSongs, ...localAudio];
+                        }
+                        newItems = combinedSongs;
+                        break;
+                    case 'Liked Songs':
+                        newType = 'track';
+                        const lIds = await getLikedTracksIds();
+                        // Liked songs should check from combined static and potentially local if we decide to allow liking local files
+                        // For now, sticking to staticAllTracks for liked songs
+                        newItems = staticAllTracks.filter(t => t.id && lIds.includes(t.id.toString())).map(t => ({ ...t, type: 'track' }));
+                        break;
+                    case 'Albums':
+                        newType = 'album'; const alb = {}; staticAllTracks.forEach(t => { if (!t.album || t.album === "—") return; if (!alb[t.album]) alb[t.album] = { id: t.album, name: t.album, artwork: t.artwork, artist: t.artist, tracks: [] }; alb[t.album].tracks.push(t); }); newItems = Object.values(alb).map(a => ({ ...a, type: 'album' })); break;
+                    case 'Artists':
+                        newType = 'artist'; const art = {}; staticAllTracks.forEach(t => { if (!t.artist) return; if (!art[t.artist]) art[t.artist] = { id: t.artist, name: t.artist, artwork: t.artwork, trackCount: 0, tracks: [] }; art[t.artist].trackCount++; art[t.artist].tracks.push(t); }); newItems = Object.values(art).map(a => ({ ...a, type: 'artist' })); break;
+                    case 'Downloaded': newType = 'track'; newItems = staticAllTracks.slice(0, 3).map(t => ({ ...t, type: 'track', downloadStatus: 'downloaded' })); break; // Mock
+                    default: newItems = []; break;
                 }
-            } catch (error) {
-                console.error(`LibraryScreen: Error processing filter ${selectedFilter}:`, error);
-                newItems = []; // В случае ошибки показываем пустой список
-            }
-
-            setDisplayedItems(newItems);
-            setItemTypeForList(newType);
-            setIsProcessingData(false);
-            console.log(`LibraryScreen: Displayed ${newItems.length} items for ${selectedFilter}. Type: ${newType}`);
+            } catch (error) { console.error(`Error processing ${selectedFilter}:`, error); newItems = []; }
+            setDisplayedItems(newItems); setItemTypeForList(newType); setIsProcessingData(false);
         };
-
         loadAndFilterData();
-    }, [selectedFilter, isFocused, staticAllTracks, isLoadingAllTracks]);
+    }, [selectedFilter, isFocused, staticAllTracks, isLoadingStaticTracks, mediaLibraryPermission]); // Removed fetchLocalAudioFiles from dependencies
 
-
-    // --- Обработчики действий ---
-    const triggerDataReloadForPlaylists = useCallback(async () => {
-        // Вызывается для обновления вкладки плейлистов после создания/изменения
-        if (selectedFilter === 'Playlists' && !isProcessingData) { // Проверяем, чтобы не было двойной загрузки
-            console.log('LibraryScreen: Forcing reload of playlists tab.');
+    const triggerDataReloadForPlaylists = useCallback(async (switchToPlaylists = false) => {
+        if (!isProcessingData) {
             setIsProcessingData(true);
             const playlistsFromDb = await getUserPlaylists();
-            const formattedPlaylists = playlistsFromDb.map(p => ({
-                ...p, type: 'playlist', artwork: p.artwork || DEFAULT_PLAYLIST_ARTWORK,
-                trackCount: p.trackIds?.length || 0,
-            })).sort((a,b) => b.createdAt - a.createdAt);
-            setUserPlaylists(formattedPlaylists);
-            setDisplayedItems(formattedPlaylists);
-            setItemTypeForList('playlist'); // Убедимся, что тип установлен
+            const formatted = playlistsFromDb.map(p => ({ ...p, type: 'playlist', artwork: p.artwork || DEFAULT_PLAYLIST_ARTWORK, trackCount: p.trackIds?.length || 0 })).sort((a,b) => b.createdAt - a.createdAt);
+            setUserPlaylists(formatted);
+            if (selectedFilter === 'Playlists' || switchToPlaylists) {
+                setDisplayedItems(formatted);
+                setItemTypeForList('playlist');
+                if (switchToPlaylists && selectedFilter !== 'Playlists') setSelectedFilter('Playlists');
+            }
             setIsProcessingData(false);
-        } else if (selectedFilter !== 'Playlists') {
-            // Если мы не на вкладке плейлистов, просто переключимся на нее,
-            // useEffect сам загрузит данные.
-            setSelectedFilter('Playlists');
         }
-    }, [selectedFilter, isProcessingData]); // isProcessingData для предотвращения рекурсии
-
+    }, [isProcessingData, selectedFilter]);
 
     const handleCreatePlaylistSubmit = async () => {
-        if (newPlaylistName.trim() === '') { Alert.alert("Invalid Name", "Playlist name cannot be empty."); return; }
-        setIsProcessingData(true); // Используем общий флаг
+        if (newPlaylistName.trim() === '') { Alert.alert("Invalid Name", "Playlist name required."); return; }
+        setIsProcessingData(true);
         const created = await createPlaylist(newPlaylistName);
-        setNewPlaylistName('');
-        setIsCreatePlaylistModalVisible(false);
-        if (created) {
-            await triggerDataReloadForPlaylists();
-        } else {
-            Alert.alert("Creation Failed", "Could not create the playlist.");
-        }
+        setNewPlaylistName(''); setIsCreatePlaylistModalVisible(false);
+        if (created) await triggerDataReloadForPlaylists(true);
+        else Alert.alert("Failed", "Could not create playlist.");
         setIsProcessingData(false);
     };
 
     const handleTrackAddedToPlaylist = async (playlist, track) => {
         Alert.alert("Success!", `"${track.title}" was added to "${playlist.name}".`);
-        await triggerDataReloadForPlaylists(); // Обновляем, если текущий фильтр - плейлисты
+        await triggerDataReloadForPlaylists();
     };
 
     const handleItemPress = useCallback((item) => {
-        console.log(`LibraryScreen: Item pressed - Type: ${itemTypeForList}, Name: ${item.name || item.title}`);
-        switch (itemTypeForList) {
-            case 'track':
-                const playlistForPlayer = displayedItems.filter(i => i.type === 'track' && i.url);
-                const trackIndex = playlistForPlayer.findIndex(t => t.id === item.id);
-                if (item.url && trackIndex !== -1) {
-                    navigation.navigate('Player', { track: item, playlist: playlistForPlayer, currentIndex: trackIndex });
-                } else if (item.url) { // Если трек не в displayedItems, но есть URL (например, из поиска в будущем)
-                    navigation.navigate('Player', { track: item, playlist: [item], currentIndex: 0 });
-                } else { Alert.alert("Cannot Play", "Track has no valid URL or not found in current list."); }
-                break;
-            case 'album':
-                navigation.navigate('AlbumDetail', { albumId: item.id, albumName: item.name, tracks: item.tracks || [], artist: item.artist, artwork: item.artwork });
-                break;
-            case 'artist':
-                navigation.navigate('ArtistDetail', { artistId: item.id, artistName: item.name, tracks: item.tracks || [], artwork: item.artwork });
-                break;
-            case 'playlist':
-                const playlistTracks = item.trackIds?.map(trackId => staticAllTracks.find(t => t.id === trackId)).filter(track => !!track);
-                navigation.navigate('PlaylistDetail', { playlistId: item.id, playlistName: item.name, tracks: playlistTracks || [], artwork: item.artwork || DEFAULT_PLAYLIST_ARTWORK, description: item.description });
-                break;
-            default:
-                console.warn("LibraryScreen: Unknown item type for press:", itemTypeForList);
+        let playlistForPlayer = []; let trackIndex = -1;
+        let trackToPlay = item;
+
+        if (itemTypeForList === 'track') {
+            // Ensure displayedItems for 'All Songs' includes local tracks when passed to player
+            playlistForPlayer = displayedItems.filter(i => i.type === 'track' && i.url);
+            trackIndex = playlistForPlayer.findIndex(t => t.id === item.id);
+        } else if (['album', 'artist'].includes(itemTypeForList)) {
+            playlistForPlayer = (item.tracks || []).filter(t => t && t.url);
+            if (playlistForPlayer.length > 0) { trackToPlay = playlistForPlayer[0]; trackIndex = 0; }
+            else { trackToPlay = null; }
+        } else if (itemTypeForList === 'playlist') {
+            // For playlists, resolve track IDs against all known tracks (static + potentially local if playlists could store local IDs)
+            // Current implementation resolves against staticAllTracks. If local tracks can be added to playlists, this needs adjustment.
+            // For now, assuming playlist tracks are from staticAllTracks.
+            const hydratedTracks = item.trackIds?.map(id => {
+                const foundTrack = staticAllTracks.find(t => t.id === id);
+                // If playlists could contain local tracks, you'd need a way to find them too.
+                // e.g. by checking displayedItems if 'All Songs' is the source, or a combined list.
+                return foundTrack;
+            }).filter(t => !!t && t.url);
+
+            playlistForPlayer = hydratedTracks || [];
+            if (playlistForPlayer.length > 0) { trackToPlay = playlistForPlayer[0]; trackIndex = 0; }
+            else { trackToPlay = null; }
         }
+
+        if (trackToPlay && trackToPlay.url) {
+            if (trackIndex === -1 && playlistForPlayer.length > 0 && playlistForPlayer[0].id === trackToPlay.id) trackIndex = 0;
+            else if (trackIndex === -1) { playlistForPlayer = [trackToPlay]; trackIndex = 0; }
+            navigation.navigate('Player', { track: trackToPlay, playlist: playlistForPlayer, currentIndex: trackIndex });
+        } else if (itemTypeForList !== 'track' && !trackToPlay) {
+            if (itemTypeForList === 'album') navigation.navigate('AlbumDetail', { albumId: item.id, albumName: item.name, tracks: item.tracks, artwork: item.artwork });
+            else if (itemTypeForList === 'artist') navigation.navigate('ArtistDetail', { artistId: item.id, artistName: item.name, tracks: item.tracks, artwork: item.artwork });
+            else if (itemTypeForList === 'playlist') navigation.navigate('PlaylistDetail', { playlistId: item.id, playlistName: item.name, tracks: [], artwork: item.artwork || DEFAULT_PLAYLIST_ARTWORK });
+        } else { Alert.alert("Cannot Play", "This item cannot be played or has no playable tracks."); }
     }, [navigation, itemTypeForList, displayedItems, staticAllTracks]);
 
     const handleMoreOptionsPress = (item, type) => {
-        console.log(`LibraryScreen: More options for type: ${type}, item: ${item.title || item.name}`);
-        if (type === 'track') {
-            setTrackToAddToPlaylist(item);
-            setIsAddToPlaylistModalVisible(true);
-        } else {
-            Alert.alert("More Options", `Options for ${item.name || item.title} (${type}) not implemented yet.`);
-        }
+        if (type === 'track') { setTrackToAddToPlaylist(item); setIsAddToPlaylistModalVisible(true); }
+        else { Alert.alert("More Options", `Options for ${item.name || item.title} (${type}) not implemented.`); }
     };
 
-    const openCreatePlaylistModal = () => {
-        setNewPlaylistName('');
-        setIsCreatePlaylistModalVisible(true);
-    };
-
+    const openCreatePlaylistModal = () => { setNewPlaylistName(''); setIsCreatePlaylistModalVisible(true); };
     const renderListItem = ({ item }) => (<ListItem item={item} onPress={() => handleItemPress(item)} itemType={itemTypeForList} onMoreOptionsPress={handleMoreOptionsPress} />);
 
     const ListHeaderContent = () => (
         <>
             <View className={`flex-row justify-between items-center px-5 pb-2 pt-4 ${Platform.OS === 'android' ? 'android:pt-10' : 'ios:pt-5'}`}>
                 <Text className="text-3xl font-bold text-custom-quaternary">Library</Text>
-                <TouchableOpacity onPress={() => navigation.navigate('Search')} className="p-2 rounded-full active:bg-custom-surface/50">
-                    <Ionicons name="search" size={26} color={ICON_COLOR_PRIMARY} />
-                </TouchableOpacity>
+                <TouchableOpacity onPress={() => navigation.navigate('Search')} className="p-2 rounded-full active:bg-custom-surface/50"><Ionicons name="search" size={26} color={ICON_COLOR_PRIMARY} /></TouchableOpacity>
             </View>
             <View className="pb-1.5">
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipsScrollContentContainer}>
@@ -325,80 +320,85 @@ export default function LibraryScreen() {
                     <Text className="text-custom-quaternary text-base font-medium">Create New Playlist</Text>
                 </TouchableOpacity>
             )}
-            {/* Заголовок секции (например, "Albums", "Artists") */}
+            {/* Removed 'Refresh Local Files' button */}
             {displayedItems.length > 0 && !['track', 'playlist'].includes(itemTypeForList) && (
                 <View className="px-5 pb-2 pt-1"><Text className="text-xl font-bold text-custom-quaternary">{selectedFilter}</Text></View>
             )}
         </>
     );
 
-    // Первичный лоадер, если данные еще не загружены (кроме плейлистов, которые грузятся независимо)
-    if (isLoadingAllTracks && selectedFilter !== 'Playlists') {
-        return (<View className="flex-1 justify-center items-center bg-custom-tertiary"><ActivityIndicator size="large" color={ICON_COLOR_ACCENT} /></View>);
+    if (isLoadingStaticTracks && selectedFilter !== 'Playlists') { // Adjusted condition
+        return (<View style={styles.fullScreenLoader}><ActivityIndicator size="large" color={ICON_COLOR_ACCENT} /></View>);
     }
 
     return (
-        <View className="flex-1 bg-custom-tertiary">
+        <View style={styles.container}>
             <StatusBar barStyle="light-content" backgroundColor="transparent" translucent={true} />
             <FlatList
                 data={displayedItems}
                 renderItem={renderListItem}
-                keyExtractor={(item, index) => `${itemTypeForList}-${item.id?.toString() || item.name || index.toString()}`}
+                keyExtractor={(item, index) => `${itemTypeForList}-${item.isLocal ? 'local':''}-${item.id?.toString() || index.toString()}`}
                 ListHeaderComponent={ListHeaderContent}
                 ListEmptyComponent={() => (
-                    !isProcessingData && ( // Показываем, только если не идет активная обработка/загрузка
-                        <View className="flex-1 justify-center items-center px-5 mt-10">
+                    !isProcessingData && (
+                        <View style={styles.emptyStateContainer}>
                             <MaterialCommunityIcons name="music-box-multiple-outline" size={56} color={ICON_COLOR_SECONDARY} />
-                            <Text className="text-lg font-semibold text-custom-quaternary/70 mt-4 text-center">
-                                {selectedFilter === 'Playlists' && userPlaylists.length === 0 ? "No playlists yet." : `No ${selectedFilter.toLowerCase()} found.`}
+                            <Text style={styles.emptyStateText}>
+                                {selectedFilter === 'All Songs' && Platform.OS !== 'web' && mediaLibraryPermission !== 'granted' && mediaLibraryPermission !== null
+                                    ? "Grant permission to access local audio files."
+                                    : `No ${selectedFilter.toLowerCase()} found.`
+                                }
                             </Text>
-                            {selectedFilter === 'Playlists' && userPlaylists.length === 0 && (
-                                <Text className="text-sm text-custom-quaternary/50 mt-2 text-center">Tap "Create New Playlist" to start.</Text>
+                            {selectedFilter === 'Playlists' && displayedItems.length === 0 && ( <Text style={styles.emptyStateSubText}>Tap "Create New Playlist" to start.</Text> )}
+                            {selectedFilter === 'All Songs' && Platform.OS !== 'web' && mediaLibraryPermission !== 'granted' && mediaLibraryPermission !== null && (
+                                <TouchableOpacity onPress={async () => {
+                                    const { status } = await MediaLibrary.requestPermissionsAsync();
+                                    setMediaLibraryPermission(status);
+                                    if (status === 'granted') {
+                                        // Optionally trigger a manual refresh if useEffect doesn't catch it fast enough
+                                        // For now, relying on useEffect for mediaLibraryPermission change
+                                    }
+                                }} className="mt-4 bg-custom-primary py-2 px-4 rounded-md">
+                                    <Text className="text-custom-tertiary font-semibold">Request Permission</Text>
+                                </TouchableOpacity>
+                            )}
+                            {selectedFilter === 'All Songs' && Platform.OS !== 'web' && mediaLibraryPermission === 'granted' && displayedItems.length === staticAllTracks.length && staticAllTracks.length > 0 && (
+                                <Text style={styles.emptyStateSubText}>No additional local audio files found on your device. Add audio files to your device's music folders.</Text>
+                            )}
+                            {selectedFilter === 'All Songs' && Platform.OS !== 'web' && mediaLibraryPermission === 'granted' && displayedItems.length === 0 && ( // Only static tracks are 0
+                                <Text style={styles.emptyStateSubText}>No songs found in your library or on your device. Add audio files to your device's music folders.</Text>
                             )}
                         </View>
                     )
                 )}
                 contentContainerStyle={{ paddingBottom: 90 }}
                 showsVerticalScrollIndicator={false}
-                extraData={isProcessingData || selectedFilter} // Для ререндера ListEmptyComponent
+                extraData={isProcessingData || selectedFilter || mediaLibraryPermission || displayedItems.length}
             />
-
-            {isProcessingData && !isLoadingAllTracks && ( // Показываем только если это не первичная загрузка AllTracks
-                <View style={styles.processingOverlay}><ActivityIndicator size="large" color={ICON_COLOR_ACCENT} /></View>
-            )}
-
+            {isProcessingData && !isLoadingStaticTracks && ( <View style={styles.processingOverlay}><ActivityIndicator size="large" color={ICON_COLOR_ACCENT} /></View> )}
             <Modal animationType="fade" transparent={true} visible={isCreatePlaylistModalVisible} onRequestClose={() => { setIsCreatePlaylistModalVisible(false); setNewPlaylistName(''); }}>
-                <View className="flex-1 justify-center items-center bg-black/80 px-5">
-                    <View className="bg-custom-surface w-full p-6 rounded-xl shadow-xl">
-                        <Text className="text-xl font-bold text-custom-quaternary mb-6 text-center">New Playlist</Text>
-                        <TextInput
-                            placeholder="Enter playlist name" placeholderTextColor={ICON_COLOR_SECONDARY}
-                            value={newPlaylistName} onChangeText={setNewPlaylistName}
-                            className="bg-custom-tertiary text-custom-quaternary p-4 rounded-lg mb-6 border border-custom-border text-base"
-                            autoFocus={true} onSubmitEditing={handleCreatePlaylistSubmit}
-                        />
-                        <View className="flex-row justify-end space-x-3">
-                            <TouchableOpacity onPress={() => { setIsCreatePlaylistModalVisible(false); setNewPlaylistName(''); }} className="py-3 px-5 rounded-lg bg-zinc-600 active:bg-zinc-500"><Text className="text-custom-quaternary font-semibold">Cancel</Text></TouchableOpacity>
-                            <TouchableOpacity onPress={handleCreatePlaylistSubmit} className="py-3 px-5 rounded-lg bg-custom-primary active:opacity-80"><Text className="font-semibold" style={{ color: TEXT_COLOR_ON_ACCENT }}>Create</Text></TouchableOpacity>
-                        </View>
+                <View style={styles.modalOuterContainer}><View style={styles.modalInnerContainer}>
+                    <Text className="text-xl font-bold text-custom-quaternary mb-6 text-center">New Playlist</Text>
+                    <TextInput placeholder="Enter playlist name" placeholderTextColor={ICON_COLOR_SECONDARY} value={newPlaylistName} onChangeText={setNewPlaylistName} className="bg-custom-tertiary text-custom-quaternary p-4 rounded-lg mb-6 border border-custom-border text-base" autoFocus={true} onSubmitEditing={handleCreatePlaylistSubmit} />
+                    <View className="flex-row justify-end space-x-3">
+                        <TouchableOpacity onPress={() => { setIsCreatePlaylistModalVisible(false); setNewPlaylistName(''); }} className="py-3 px-5 rounded-lg bg-zinc-600 active:bg-zinc-500"><Text className="text-custom-quaternary font-semibold">Cancel</Text></TouchableOpacity>
+                        <TouchableOpacity onPress={handleCreatePlaylistSubmit} className="py-3 px-5 rounded-lg bg-custom-primary active:opacity-80"><Text className="font-semibold" style={{ color: TEXT_COLOR_ON_ACCENT }}>Create</Text></TouchableOpacity>
                     </View>
-                </View>
+                </View></View>
             </Modal>
-
-            {trackToAddToPlaylist && (
-                <AddToPlaylistModal
-                    visible={isAddToPlaylistModalVisible}
-                    onClose={() => { setIsAddToPlaylistModalVisible(false); setTrackToAddToPlaylist(null); }}
-                    trackToAdd={trackToAddToPlaylist}
-                    onTrackAdded={handleTrackAddedToPlaylist}
-                    onCreateNewPlaylist={openCreatePlaylistModal}
-                />
-            )}
+            {trackToAddToPlaylist && (<AddToPlaylistModal visible={isAddToPlaylistModalVisible} onClose={() => { setIsAddToPlaylistModalVisible(false); setTrackToAddToPlaylist(null); }} trackToAdd={trackToAddToPlaylist} onTrackAdded={handleTrackAddedToPlaylist} onCreateNewPlaylist={openCreatePlaylistModal}/>)}
         </View>
     );
 }
 
 const styles = StyleSheet.create({
+    container: { flex: 1, backgroundColor: BG_COLOR_SCREEN },
+    fullScreenLoader: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: BG_COLOR_SCREEN },
     chipsScrollContentContainer: { paddingHorizontal: 20, paddingVertical: 10 },
-    processingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center', zIndex: 1000 },
+    processingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', zIndex: 1000 },
+    emptyStateContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20, marginTop: 20 },
+    emptyStateText: { fontSize: 17, fontWeight: '600', color: ICON_COLOR_SECONDARY, textAlign: 'center', marginTop: 16 },
+    emptyStateSubText: { fontSize: 14, color: ICON_COLOR_SECONDARY, opacity: 0.8, textAlign: 'center', marginTop: 8, paddingHorizontal: 20 },
+    modalOuterContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.8)', paddingHorizontal: 20 },
+    modalInnerContainer: { backgroundColor: '#1E1E1E', width: '100%', padding: 24, borderRadius: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 2}, shadowOpacity: 0.25, shadowRadius: 8, elevation: 5},
 });

@@ -4,11 +4,9 @@ import { View, Text, TouchableOpacity, FlatList, Modal, ActivityIndicator, Style
 import { Ionicons } from '@expo/vector-icons';
 import { getUserPlaylists, addTrackToPlaylist } from '../utils/storage'; // Убедитесь, что путь верный
 
-// Цвета (используйте ваши HEX-эквиваленты custom-цветов из Tailwind)
 const ICON_COLOR_PRIMARY_MODAL = '#FAFAFA';      // custom-quaternary
 const ICON_COLOR_SECONDARY_MODAL = '#A0A0A0';   // custom-text-secondary
 const BG_MODAL_OVERLAY = 'rgba(0,0,0,0.7)';    // Фон оверлея
-// Для Tailwind: bg-custom-surface, border-custom-border/30, text-custom-quaternary
 
 const AddToPlaylistModal = ({ visible, onClose, trackToAdd, onTrackAdded, onCreateNewPlaylist }) => {
     const [playlists, setPlaylists] = useState([]);
@@ -20,13 +18,13 @@ const AddToPlaylistModal = ({ visible, onClose, trackToAdd, onTrackAdded, onCrea
             const fetchPlaylists = async () => {
                 setLoadingPlaylists(true);
                 const userPlaylists = await getUserPlaylists();
-                // Сортируем: сначала более новые
+
                 setPlaylists(userPlaylists.sort((a, b) => b.createdAt - a.createdAt));
                 setLoadingPlaylists(false);
             };
             fetchPlaylists();
         } else {
-            // Сбрасываем состояние при закрытии модалки
+
             setPlaylists([]);
             setAddingTrackToPlaylistId(null);
         }
@@ -54,7 +52,7 @@ const AddToPlaylistModal = ({ visible, onClose, trackToAdd, onTrackAdded, onCrea
             onPress={() => handleAddTrackToExistingPlaylist(item)}
             disabled={addingTrackToPlaylistId === item.id}
             className="flex-row items-center py-3.5 px-4 border-b border-custom-border/20 active:bg-custom-surface/20"
-            // Замените custom-border, custom-surface на ваши Tailwind классы
+
         >
             <Ionicons name="musical-notes-outline" size={22} color={ICON_COLOR_SECONDARY_MODAL} className="mr-4" />
             <Text className="flex-1 text-base text-custom-quaternary" numberOfLines={1}>
@@ -75,10 +73,10 @@ const AddToPlaylistModal = ({ visible, onClose, trackToAdd, onTrackAdded, onCrea
             onRequestClose={onClose}
         >
             <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={onClose}>
-                {/* Предотвращаем закрытие по клику на сам контент модалки */}
+
                 <View onStartShouldSetResponder={() => true} style={styles.modalContentContainer}>
                     <View className="bg-custom-surface rounded-t-2xl shadow-xl overflow-hidden">
-                        {/* Заголовок модалки */}
+
                         <View className="flex-row justify-between items-center pt-4 pb-3 px-4 border-b border-custom-border/30">
                             <Text className="text-lg font-semibold text-custom-quaternary">
                                 Add to a Playlist
@@ -88,7 +86,6 @@ const AddToPlaylistModal = ({ visible, onClose, trackToAdd, onTrackAdded, onCrea
                             </TouchableOpacity>
                         </View>
 
-                        {/* Список плейлистов или индикатор загрузки */}
                         {loadingPlaylists ? (
                             <View className="h-48 justify-center items-center">
                                 <ActivityIndicator size="large" color={ICON_COLOR_PRIMARY_MODAL} />
@@ -108,13 +105,11 @@ const AddToPlaylistModal = ({ visible, onClose, trackToAdd, onTrackAdded, onCrea
                                 style={styles.playlistList} // Ограничиваем высоту списка
                             />
                         )}
-
-                        {/* Кнопка "Создать новый плейлист" */}
-                        {onCreateNewPlaylist && ( // Показываем только если передан колбэк
+                        {onCreateNewPlaylist && (
                             <TouchableOpacity
                                 onPress={() => {
-                                    onClose(); // Закрываем эту модалку
-                                    onCreateNewPlaylist(); // Открываем модалку создания плейлиста
+                                    onClose();
+                                    onCreateNewPlaylist();
                                 }}
                                 className="py-4 px-4 border-t border-custom-border/30 flex-row items-center active:bg-custom-surface/20"
                             >
@@ -135,22 +130,22 @@ const styles = StyleSheet.create({
         justifyContent: 'flex-end',
         backgroundColor: BG_MODAL_OVERLAY,
     },
-    modalContentContainer: { // Этот контейнер нужен чтобы тень от modalContent не обрезалась
-        marginHorizontal: Platform.OS === 'ios' ? 8 : 0, // Небольшой отступ по бокам для iOS для тени
-        marginBottom: Platform.OS === 'ios' ? 8 : 0, // и снизу
-        borderRadius: 16, // Для контейнера, чтобы тень была скруглённой
-        // Тень для контейнера, а не для BlurView
+    modalContentContainer: {
+        marginHorizontal: Platform.OS === 'ios' ? 8 : 0,
+        marginBottom: Platform.OS === 'ios' ? 8 : 0,
+        borderRadius: 16,
+
         ...(Platform.OS === 'ios' ? {
             shadowColor: '#000',
             shadowOffset: { width: 0, height: -5 },
             shadowOpacity: 0.15,
             shadowRadius: 10,
         } : {
-            elevation: 10, // На Android тень будет от bg-custom-surface
+            elevation: 10,
         }),
     },
     playlistList: {
-        maxHeight: Platform.OS === 'ios' ? 300 : 280, // Ограничиваем высоту списка
+        maxHeight: Platform.OS === 'ios' ? 300 : 280,
     },
 });
 

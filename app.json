@@ -13,7 +13,11 @@
       "backgroundColor": "#030318"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSAppleMusicUsageDescription": "This app uses your music library to play your songs.",
+        "kTCCServiceMediaLibrary": "This app uses your music library to play your songs."
+      }
     },
     "android": {
       "adaptiveIcon": {

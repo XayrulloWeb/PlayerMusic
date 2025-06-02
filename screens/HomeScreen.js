@@ -20,16 +20,13 @@ const sectionsData = {
     newReleases: [allTracks[0], allTracks[2], allTracks[4]].map(track => ({ ...track, type: 'Single' })),
 };
 
-// Цвета из Tailwind config (для удобства доступа в StyleSheet или где Tailwind классы не прям удобны)
-// Эти значения должны совпадать с вашим tailwind.config.js
 const themeColors = {
     primary: '#8DEEED',       // custom-primary
     secondary: '#7037E4',     // custom-secondary
     tertiary: '#030318',      // custom-tertiary (фон)
     quaternary: '#FAFAFA',    // custom-quaternary (основной текст)
     surface: '#0F0F2B',       // Предположим, это ваш 'custom-surface-raised' или аналог для фона карточек
-    // Если нет, можно использовать bg-neutral-800 или bg-zinc-800 как альтернативу.
-    // Я буду использовать 'bg-zinc-800' как пример, если 'custom-surface' не определен.
+
     textSecondary: '#A0A0A0', // Предположим, это для второстепенного текста (как text-neutral-400)
 };
 
@@ -37,10 +34,6 @@ const themeColors = {
 const ContentCard = ({ item, onPress }) => (
     <TouchableOpacity
         onPress={onPress}
-        // Используем bg-zinc-800 как хороший темный фон для карточек.
-        // Если у вас есть 'custom-surface', используйте его: className="... bg-custom-surface ..."
-        // Тень: shadow-md - стандартная, shadow-lg - побольше. Для темных тем тени менее заметны.
-        // Можно добавить легкую границу, если тени не видны: border border-zinc-700
         className="w-36 mr-4 bg-[#0e1133] p-3 rounded-lg shadow-md active:bg-[#0e1190]"
     >
         <Image
@@ -50,8 +43,6 @@ const ContentCard = ({ item, onPress }) => (
         />
         <Text className="text-custom-quaternary font-semibold text-sm" numberOfLines={1}>{item.title}</Text>
         <Text
-            // Используем text-neutral-400, так как он хорошо смотрится для второстепенного текста.
-            // Если у вас есть свой 'text-custom-text-secondary', используйте его.
             className="text-neutral-400 text-xs"
             numberOfLines={1}
         >
@@ -62,9 +53,7 @@ const ContentCard = ({ item, onPress }) => (
 
 // Компонент для секции
 const HorizontalSection = ({ title, data, onCardPress }) => (
-    <View className="mb-6"> {/* Уменьшил mb до 6 */}
-        <Text className="text-custom-quaternary text-xl font-bold px-5 mb-3">{title}</Text>
-        <FlatList
+    <View className="mb-6"><Text className="text-custom-quaternary text-xl font-bold px-5 mb-3">{title}</Text><FlatList
             data={data}
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -107,10 +96,7 @@ export default function HomeScreen() {
             contentContainerStyle={styles.scrollViewContentContainer}
             showsVerticalScrollIndicator={false}
         >
-            {/* Статус бар */}
             <StatusBar barStyle="light-content" backgroundColor={themeColors.tertiary} />
-
-            {/* Заголовок-приветствие */}
             <View className="px-5 mt-4 mb-5 flex-row justify-between items-center"> {/* Уменьшил mb до 5, добавил mt-4 */}
                 <Text className="text-custom-quaternary text-2xl font-bold">{getGreeting()}</Text>
                 <View className="flex-row">
@@ -122,14 +108,11 @@ export default function HomeScreen() {
                     </TouchableOpacity>
                 </View>
             </View>
-
-            {/* Фильтры-чипсы */}
             <View className="px-5 mb-6">
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipsScrollViewContent}>
                     {['Music', 'Podcasts', 'Audiobooks'].map(chip => (
                         <TouchableOpacity
                             key={chip}
-                            // bg-zinc-800 для чипсов, как и для карточек. active: для эффекта нажатия.
                             className="bg-[#0e1133] px-4 py-2 rounded-full mr-2 active:bg-zinc-700"
                         >
                             <Text className="text-custom-quaternary text-sm font-medium">{chip}</Text>
@@ -137,7 +120,6 @@ export default function HomeScreen() {
                     ))}
                 </ScrollView>
             </View>
-
             <HorizontalSection
                 title="Recently Played"
                 data={sectionsData.recentlyPlayed}
@@ -153,8 +135,6 @@ export default function HomeScreen() {
                 data={sectionsData.newReleases}
                 onCardPress={handleCardPress}
             />
-            {/* Дополнительные секции можно добавить здесь */}
-
         </ScrollView>
     );
 }

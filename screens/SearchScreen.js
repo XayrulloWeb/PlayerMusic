@@ -5,7 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import allTracksDataForSearch from '../assets/tracks.json'; // Импорт данных
 
-// Цвета (используй HEX напрямую для иконок и placeholderTextColor)
+
 const COLOR_PLACEHOLDER = '#A0A0A0'; // Пример: custom-text-secondary
 const COLOR_TEXT_PRIMARY_HEX = '#FAFAFA'; // custom-quaternary
 const COLOR_ICON_INACTIVE_HEX = '#A0A0A0'; // Пример: custom-text-secondary
@@ -33,13 +33,11 @@ const CategoryCard = ({ item, onPress }) => (
 
 const SearchResultItem = ({ item, onPress }) => (
     <TouchableOpacity onPress={onPress} className="flex-row items-center mb-4 p-2 rounded-lg active:bg-custom-surface-raised/50">
-        {/* Для active: эффекта в RN нужен Pressable. active:bg-custom-surface-raised/50 - это Tailwind CSS для веба. */}
-        {/* В RN можно обернуть в Pressable и менять style при  pressed={true} */}
+
         <Image source={{ uri: item.artwork }} className="w-12 h-12 rounded-md mr-4" />
         <View className="flex-1">
             <Text className="text-custom-quaternary font-semibold text-base" numberOfLines={1}>{item.title}</Text>
             <Text className="text-custom-text-secondary text-sm" numberOfLines={1}>{item.artist}</Text>
-            {/* Убедись, что text-custom-text-secondary определен или замени на style={{color: COLOR_TEXT_SECONDARY_HEX}} */}
         </View>
     </TouchableOpacity>
 );
@@ -74,7 +72,7 @@ export default function SearchScreen() {
 
     const handleCategoryPress = (category) => {
         console.log('Category pressed (functionality to be implemented):', category.name);
-        // setSearchText(category.name); // Можно так для простоты
+
     };
 
     return (
@@ -130,7 +128,7 @@ export default function SearchScreen() {
                     />
                 </ScrollView>
             )}
-            <View className="h-20" />
+            <View className="h-10" />
         </View>
     );
 }

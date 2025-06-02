@@ -7,7 +7,6 @@ import {
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 
-// Используйте те же константы цветов, что и в AlbumDetailScreen
 const ICON_COLOR_PRIMARY = '#FAFAFA';
 const ICON_COLOR_ACCENT = '#8DEEED';
 const TEXT_ON_ACCENT_BUTTON_COLOR = '#030318';
@@ -20,9 +19,8 @@ const ArtistDetailScreen = () => {
     const params = route.params || {};
     const {
         artistName = "Artist",
-        // Предполагаем, что 'tracks' - это популярные треки артиста
         tracks = [],
-        artwork // Может быть арт первого альбома или фото артиста
+        artwork
     } = params;
 
     const handlePlayTrack = useCallback((selectedTrack, index) => {
@@ -58,10 +56,10 @@ const ArtistDetailScreen = () => {
             onPress={() => handlePlayTrack(item, index)}
             className="flex-row items-center p-3 mb-1.5 bg-custom-surface/10 rounded-lg active:bg-custom-surface/20"
         >
-            {item.artwork && ( // Маленькая обложка трека/альбома
+            {item.artwork && (
                 <Image source={{uri: item.artwork}} className="w-10 h-10 rounded mr-3 bg-zinc-700" />
             )}
-            {!item.artwork && ( // Плейсхолдер для номера, если нет арта
+            {!item.artwork && (
                 <Text className="text-sm text-custom-quaternary/70 w-8 text-center tabular-nums">
                     {index + 1}
                 </Text>
@@ -70,7 +68,7 @@ const ArtistDetailScreen = () => {
                 <Text className="text-base font-medium text-custom-quaternary" numberOfLines={1}>
                     {item.title || "Unknown Track"}
                 </Text>
-                {item.album && ( // Показываем альбом, если есть
+                {item.album && (
                     <Text className="text-xs text-custom-quaternary/60" numberOfLines={1}>
                         {item.album}
                     </Text>
@@ -94,7 +92,6 @@ const ArtistDetailScreen = () => {
             <Text className="text-2xl md:text-3xl font-bold text-custom-quaternary text-center px-4" numberOfLines={2}>
                 {artistName}
             </Text>
-            {/* Можно добавить кнопку "Follow" или информацию о подписчиках */}
             <Text className="text-sm text-custom-quaternary/70 mt-1 mb-5">
                 {tracks.length} {tracks.length === 1 ? "song" : "songs"}
             </Text>
@@ -138,7 +135,6 @@ const ArtistDetailScreen = () => {
                     {artistName}
                 </Text>
                 <TouchableOpacity className="p-2 rounded-full active:bg-custom-surface/50">
-                    {/* <MaterialCommunityIcons name="heart-outline" size={26} color={ICON_COLOR_PRIMARY} /> */}
                     <View className="w-[26px]" />
                 </TouchableOpacity>
             </View>

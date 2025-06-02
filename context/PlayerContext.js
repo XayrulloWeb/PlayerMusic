@@ -1,140 +1,102 @@
 // context/PlayerContext.js
 import React, { createContext, useState, useContext, useRef, useEffect, useCallback } from 'react';
 import { Audio } from 'expo-av';
-import { isTrackLiked, likeTrack, unlikeTrack } from '../utils/storage'; // Убедитесь, что путь правильный
+import { isTrackLiked, likeTrack, unlikeTrack } from '../utils/storage';
 
 const PlayerContext = createContext(undefined);
 
 export const PlayerProvider = ({ children }) => {
-    // Основное состояние плеера
-    const [currentTrack, setCurrentTrack] = useState(null);        // Текущий играющий/загруженный трек
-    const [playlist, setPlaylist] = useState([]);                  // Основной плейлист (альбом, плейлист пользователя)
-    const [currentIndex, setCurrentIndex] = useState(0);           // Индекс текущего трека в `playlist`
-    const [queue, setQueue] = useState([]);                        // Дополнительная очередь воспроизведения
+    const [currentTrack, setCurrentTrack] = useState(null);
+    const [playlist, setPlaylist] = useState([]);
+    const [currentIndex, setCurrentIndex] = useState(0);
+    const [queue, setQueue] = useState([]);
 
-    // Состояние воспроизведения
     const [isPlaying, setIsPlaying] = useState(false);
     const [playbackPosition, setPlaybackPosition] = useState(0);
     const [playbackDuration, setPlaybackDuration] = useState(0);
-    const [isLoading, setIsLoading] = useState(false);             // Флаг загрузки аудиофайла
-    const [isSoundLoaded, setIsSoundLoaded] = useState(false);     // Флаг, что звук загружен в `soundObjectRef`
+    const [isLoading, setIsLoading] = useState(false);
+    const [isSoundLoaded, setIsSoundLoaded] = useState(false);
 
-    // Дополнительные состояния
     const [isLiked, setIsLiked] = useState(false);
-    const [repeatMode, setRepeatMode] = useState('off');           // 'off', 'all' (для плейлиста/очереди), 'one' (для трека)
-    const [isShuffleActive, setIsShuffleActive] = useState(false); // Для основного плейлиста
+    const [repeatMode, setRepeatMode] = useState('off');
+    const [isShuffleActive, setIsShuffleActive] = useState(false);
 
-    // Refs
-    const soundObjectRef = useRef(null);    // Инстанс Audio.Sound
-    const isSeekingRef = useRef(false);     // Флаг, что пользователь сейчас перематывает слайдер
-    const actionsRef = useRef({});      // Для доступа к последней версии actions из замыканий
+    const soundObjectRef = useRef(null);
+    const isSeekingRef = useRef(false);
+    const actionsRef = useRef({});
 
-    // --- Вспомогательные функции ---
+    // --- Вспомогательные функции (стабильные) ---
     const _updateLikeStatus = useCallback(async (trackId) => {
-        if (trackId) {
-            setIsLiked(await isTrackLiked(trackId));
-        } else {
-            setIsLiked(false);
-        }
-    }, []); // Зависимостей нет, isTrackLiked - внешняя
+        setIsLiked(trackId ? await isTrackLiked(trackId) : false);
+    }, []);
 
     const unloadCurrentSound = useCallback(async (stopPlayback = true) => {
-        console.log('[PlayerContext] Attempting to unload current sound. Stop playback:', stopPlayback);
         if (soundObjectRef.current) {
+            console.log('[PlayerContext] Unloading sound. Stop:', stopPlayback);
             try {
                 const status = await soundObjectRef.current.getStatusAsync();
                 if (status.isLoaded) {
-                    if (stopPlayback) {
-                        console.log('[PlayerContext] Stopping playback before unload.');
-                        await soundObjectRef.current.stopAsync();
-                    }
-                    console.log('[PlayerContext] Unloading sound object.');
+                    if (stopPlayback) await soundObjectRef.current.stopAsync();
                     await soundObjectRef.current.unloadAsync();
-                    console.log('[PlayerContext] Sound unloaded.');
                 }
             } catch (error) {
-                if (!error.message.includes("sound is not loaded") && !error.message.includes("PLAYER_ERR_NO_SRC_SET")) { // Игнорируем ожидаемые ошибки
-                    console.error('[PlayerContext] Error during unloadCurrentSound:', error);
+                if (!error.message.includes("sound is not loaded") && !error.message.includes("PLAYER_ERR_NO_SRC_SET")) {
+                    console.error('[PlayerContext] Error unloading sound:', error);
                 }
             }
-            // Важно всегда отписываться и сбрасывать флаг
-            soundObjectRef.current.setOnPlaybackStatusUpdate(null);
+            soundObjectRef.current.setOnPlaybackStatusUpdate(null); // Всегда отписываемся
             setIsSoundLoaded(false);
-            if (stopPlayback) {
-                setIsPlaying(false); // Сбрасываем isPlaying, если остановили
-            }
+            if (stopPlayback) setIsPlaying(false);
         }
     }, []);
 
 
-    // --- Основная логика загрузки и воспроизведения ---
-    const _internalLoadAudio = useCallback(async (
-        trackToLoad,
-        playWhenReady,
-        isFromQueue = false // Флаг, указывающий, из очереди ли трек
-    ) => {
+    const _internalLoadAndPlayTrack = useCallback(async (trackToLoad, playWhenReady) => {
         if (!trackToLoad || !trackToLoad.url) {
             console.warn("[PlayerContext] _internalLoadAudio: No track or URL.", trackToLoad);
-            await unloadCurrentSound();
-            setCurrentTrack(null); // Сбрасываем трек, если он невалидный
+            await unloadCurrentSound(true); // Останавливаем и выгружаем
+            setCurrentTrack(null);
             setPlaybackDuration(0); setPlaybackPosition(0); setIsPlaying(false); setIsLoading(false);
             _updateLikeStatus(null);
             return false;
         }
 
-        console.log(`[PlayerContext] _internalLoadAudio: Preparing to load "${trackToLoad.title}". Play when ready: ${playWhenReady}. From queue: ${isFromQueue}`);
+        console.log(`[PlayerContext] _internalLoadAudio: Loading "${trackToLoad.title}". Play: ${playWhenReady}`);
         setIsLoading(true);
-        // Выгружаем предыдущий звук, не останавливая его, если это тот же трек (например, при смене аудиофокуса)
+
         await unloadCurrentSound(currentTrack?.id !== trackToLoad.id);
 
-        setCurrentTrack(trackToLoad); // Устанавливаем трек ДО загрузки для UI
+        setCurrentTrack(trackToLoad);
         await _updateLikeStatus(trackToLoad.id);
 
         try {
-            if (!soundObjectRef.current) {
-                soundObjectRef.current = new Audio.Sound();
-                console.log("[PlayerContext] New Audio.Sound() instance created.");
-            }
+            if (!soundObjectRef.current) soundObjectRef.current = new Audio.Sound();
 
-            // Установка обработчика статуса. Важно, чтобы он имел доступ к актуальным actions
             soundObjectRef.current.setOnPlaybackStatusUpdate((status) => {
                 if (!status) return;
                 if (!status.isLoaded) {
-                    // Эта ветка также срабатывает при unloadAsync
-                    setIsPlaying(false); // Если звук не загружен, он не может играть
-                    if (status.error) console.error(`[PlayerContext] Playback Status Error (isLoaded=false): ${status.error}`);
-                    // didJustFinish может прийти и при isLoaded=false, если это результат stopAsync + unloadAsync
+                    setIsPlaying(false);
+                    if (status.error) console.error(`[PlayerContext] StatusUpdate Error (isLoaded=false): ${status.error}`);
                     if (status.didJustFinish && !status.isLooping) {
-                        console.log("[PlayerContext] Track finished (onUpdate, isLoaded=false), calling actions.handleTrackActuallyFinished.");
                         actionsRef.current.handleTrackActuallyFinished();
                     }
                     return;
                 }
-
                 setIsSoundLoaded(true);
-                if (!isSeekingRef.current) {
-                    setPlaybackPosition(status.positionMillis || 0);
-                }
+                if (!isSeekingRef.current) setPlaybackPosition(status.positionMillis || 0);
 
                 const trackExpectedDuration = currentTrack?.duration ? currentTrack.duration * 1000 : 0;
                 setPlaybackDuration(status.durationMillis || playbackDuration || trackExpectedDuration);
                 setIsPlaying(status.isPlaying);
 
                 if (status.didJustFinish && !status.isLooping) {
-                    console.log("[PlayerContext] Track finished (onUpdate, isLoaded=true), calling actions.handleTrackActuallyFinished.");
                     actionsRef.current.handleTrackActuallyFinished();
                 }
             });
 
-            await Audio.setAudioModeAsync({
-                allowsRecordingIOS: false, playsInSilentModeIOS: true, shouldDuckAndroid: true,
-                playThroughEarpieceAndroid: false, staysActiveInBackground: true,
-            });
-
-            console.log(`[PlayerContext] Loading audio source: ${trackToLoad.url}`);
+            // AudioMode настраивается один раз в useEffect
+            console.log(`[PlayerContext] Loading source: ${trackToLoad.url}`);
             await soundObjectRef.current.loadAsync({ uri: trackToLoad.url }, { shouldPlay: playWhenReady, progressUpdateIntervalMillis: 500 });
-            console.log(`[PlayerContext] Audio loaded: "${trackToLoad.title}"`);
-            // isPlaying и isSoundLoaded установятся через onPlaybackStatusUpdate
             setIsLoading(false);
             return true;
         } catch (error) {
@@ -142,10 +104,9 @@ export const PlayerProvider = ({ children }) => {
             setCurrentTrack(null); setIsSoundLoaded(false); setIsPlaying(false); setIsLoading(false);
             return false;
         }
-    }, [unloadCurrentSound, _updateLikeStatus, currentTrack, playbackDuration]); // currentTrack, playbackDuration для обновления setPlaybackDuration
+    }, [unloadCurrentSound, _updateLikeStatus, currentTrack, playbackDuration]); // playbackDuration для setPlaybackDuration
 
-
-    // --- Функции для управления очередью и основным плейлистом ---
+    // --- Логика перехода по трекам ---
     const playNextTrackFromPlaylist = useCallback(() => {
         if (!playlist || playlist.length === 0) return false;
         let nextIdx;
@@ -165,114 +126,73 @@ export const PlayerProvider = ({ children }) => {
         }
         const nextTrackToPlay = playlist[nextIdx];
         if (nextTrackToPlay) {
-            console.log("[PlayerContext] Playing next from MAIN playlist:", nextTrackToPlay.title);
-            setCurrentIndex(nextIdx); // Обновляем индекс ДО загрузки
-            _internalLoadAudio(nextTrackToPlay, true, false); // false - не из очереди
+            setCurrentIndex(nextIdx);
+            _internalLoadAndPlayTrack(nextTrackToPlay, true);
             return true;
         }
         return false;
-    }, [playlist, isShuffleActive, currentIndex, repeatMode, _internalLoadAudio]);
+    }, [playlist, isShuffleActive, currentIndex, repeatMode, _internalLoadAndPlayTrack]);
 
     const playNextTrackFromQueue = useCallback(() => {
         if (queue.length > 0) {
             const nextTrackInQueue = queue[0];
-            const newQueue = queue.slice(1);
-            setQueue(newQueue);
-            console.log("[PlayerContext] Playing next from QUEUE:", nextTrackInQueue.title);
-            // Когда играем из очереди, основной плейлист и currentIndex не меняем явно здесь,
-            // но _internalLoadAudio установит currentTrack.
-            // Можно установить currentIndex в -1 или специальное значение, чтобы обозначить игру из очереди.
-            // setCurrentIndex(-1); // Для индикации, что играем не из `playlist`
-            _internalLoadAudio(nextTrackInQueue, true, true); // true - из очереди
+            setQueue(prevQueue => prevQueue.slice(1));
+
+            _internalLoadAndPlayTrack(nextTrackInQueue, true);
             return true;
         }
         return false;
-    }, [queue, _internalLoadAudio]);
+    }, [queue, _internalLoadAndPlayTrack]);
 
     const handleTrackActuallyFinished = useCallback(() => {
-        console.log("[PlayerContext] handleTrackActuallyFinished triggered.");
-        if (repeatMode === 'one' && currentTrack) { // Добавил currentTrack, чтобы было что повторять
+        console.log("[PlayerContext] Track finished. Repeat:", repeatMode, "Current:", currentTrack?.title);
+        if (repeatMode === 'one' && currentTrack) {
             if (soundObjectRef.current && isSoundLoaded) {
-                console.log("[PlayerContext] Replaying current track (repeat one).");
                 soundObjectRef.current.replayAsync().catch(e => console.error("[PlayerContext] Replay error", e));
             } else {
-                // Если звук не загружен, но режим "repeat one", пытаемся загрузить его снова
-                console.log("[PlayerContext] Sound not loaded for repeat one, reloading:", currentTrack.title);
-                _internalLoadAudio(currentTrack, true, currentIndex < 0); // currentIndex < 0 означает, что это из очереди
+                _internalLoadAndPlayTrack(currentTrack, true);
             }
             return;
         }
-
-        const playedFromPlaylist = playNextTrackFromPlaylist();
-        if (!playedFromPlaylist) {
-            const playedFromQueue = playNextTrackFromQueue();
-            if (!playedFromQueue) {
-                console.log("[PlayerContext] Main playlist and queue finished. Stopping playback.");
-                if(soundObjectRef.current && isSoundLoaded) {
-                    soundObjectRef.current.stopAsync().then(() => {
-                        setIsPlaying(false);
-                        setPlaybackPosition(0);
-                        // Не сбрасываем currentTrack, чтобы мини-плеер мог его показать как последний игравший
-                        // setCurrentTrack(null);
-                    });
+        if (!playNextTrackFromPlaylist()) {
+            if (!playNextTrackFromQueue()) {
+                console.log("[PlayerContext] Playlist and queue finished. Stopping.");
+                if (soundObjectRef.current && isSoundLoaded) {
+                    soundObjectRef.current.stopAsync().then(() => setIsPlaying(false));
                 } else {
                     setIsPlaying(false);
-                    // setCurrentTrack(null); // Если звука нет, то и трека нет
                 }
+
+                setPlaybackPosition(0);
             }
         }
-    }, [repeatMode, currentTrack, isSoundLoaded, playNextTrackFromPlaylist, playNextTrackFromQueue, _internalLoadAudio, currentIndex]);
+    }, [repeatMode, currentTrack, isSoundLoaded, playNextTrackFromPlaylist, playNextTrackFromQueue, _internalLoadAndPlayTrack]);
 
 
-    // --- Публичные ACTION функции ---
+
     const loadAudio = useCallback(async (track, playOnLoad, newPList, newIdx) => {
-        console.log("[PlayerContext] Action: loadAudio called for", track?.title);
-        setQueue([]); // При явной загрузке нового плейлиста/трека - очищаем очередь
+        console.log("[PlayerContext] Action: loadAudio for", track?.title);
+        setQueue([]);
         setPlaylist(newPList || []);
         setCurrentIndex(newIdx !== undefined ? newIdx : 0);
-        return await _internalLoadAudio(track, playOnLoad, false); // false - не из очереди
-    }, [_internalLoadAudio]);
+        return await _internalLoadAndPlayTrack(track, playOnLoad);
+    }, [_internalLoadAndPlayTrack]);
 
     const play = useCallback(async (trackToPlay) => {
         const targetTrack = trackToPlay || currentTrack;
-        console.log("[PlayerContext] Action: play called for", targetTrack?.title);
         if (!targetTrack || !targetTrack.url) { console.warn("[PlayerContext] Play: No track or URL."); return; }
 
         if (soundObjectRef.current && isSoundLoaded && currentTrack?.id === targetTrack.id) {
             if (!isPlaying) {
-                console.log("[PlayerContext] Resuming current track:", targetTrack.title);
                 try { await soundObjectRef.current.playAsync(); }
                 catch (e) { console.error("[PlayerContext] Error resuming:", e); }
-            } else { console.log("[PlayerContext] Already playing:", targetTrack.title); }
+            }
         } else {
-            console.log("[PlayerContext] Play: Different track or sound not loaded. Calling _internalLoadAudio for:", targetTrack.title);
-            // Определяем, из какого источника этот трек, если он не currentTrack
-            let isFromQueue = false;
-            let indexInSource = playlist.findIndex(t => t.id === targetTrack.id);
-            if (indexInSource === -1) {
-                indexInSource = queue.findIndex(t => t.id === targetTrack.id);
-                if (indexInSource !== -1) isFromQueue = true;
-                else indexInSource = 0; // Если трека нет нигде, играем как новый одиночный
-            }
-            // Если трек из основного плейлиста, используем его индекс.
-            // Если из очереди, то isFromQueue = true.
-            // Если это новый трек не из плейлиста/очереди, то _internalLoadAudio должен это обработать
-            // и установить его как currentTrack, а playlist/currentIndex обновятся через loadAudio, если он был вызван.
-            // Эта логика сложна, loadAudio должен быть основным входом для новых плейлистов.
-            // Play должен в основном возобновлять или играть currentTrack.
-            // Для простоты, если play вызван с треком, не являющимся currentTrack, считаем, что это новый контекст.
-            // Это значит, что плейлист/очередь должны быть переданы через loadAudio.
-            // Если просто play(newTrack), он будет играть как одиночный.
-            if (currentTrack?.id !== targetTrack.id) {
-                await loadAudio(targetTrack, true, [targetTrack], 0); // Играем как новый одиночный плейлист
-            } else { // Это currentTrack, но звук не был загружен
-                await _internalLoadAudio(targetTrack, true, currentIndex < 0);
-            }
+            await loadAudio(targetTrack, true, [targetTrack], 0);
         }
-    }, [isSoundLoaded, currentTrack, isPlaying, _internalLoadAudio, playlist, queue, loadAudio, currentIndex]);
+    }, [isSoundLoaded, currentTrack, isPlaying, loadAudio]);
 
     const pause = useCallback(async () => {
-        console.log("[PlayerContext] Action: pause");
         if (soundObjectRef.current && isPlaying && isSoundLoaded) {
             try { await soundObjectRef.current.pauseAsync(); }
             catch (e) { console.error("[PlayerContext] Error pausing:", e); }
@@ -280,7 +200,6 @@ export const PlayerProvider = ({ children }) => {
     }, [isPlaying, isSoundLoaded]);
 
     const seek = useCallback(async (positionMillis) => {
-        console.log("[PlayerContext] Action: seek to", positionMillis);
         if (soundObjectRef.current && isSoundLoaded) {
             try {
                 isSeekingRef.current = true;
@@ -291,55 +210,72 @@ export const PlayerProvider = ({ children }) => {
         }
     }, [isSoundLoaded, isPlaying]);
 
-    // Кнопка "Next" - приоритет основному плейлисту, затем очереди
     const skipToNext = useCallback(() => {
-        console.log("[PlayerContext] Action: skipToNext (User pressed Next)");
-        if (playNextTrackFromPlaylist()) return; // Попытка сыграть следующий из основного плейлиста
-        if (playNextTrackFromQueue()) return;   // Если не вышло, пытаемся из очереди
-        // Если и там пусто, можно остановить или ничего не делать
-        console.log("[PlayerContext] skipToNext: No next track in playlist or queue.");
+        console.log("[PlayerContext] Action: skipToNext by user");
+        if (playNextTrackFromPlaylist()) return;
+        if (playNextTrackFromQueue()) return;
+        console.log("[PlayerContext] skipToNext: No next track available.");
         if(soundObjectRef.current && isSoundLoaded && isPlaying) {
             soundObjectRef.current.stopAsync().then(() => { setIsPlaying(false); setPlaybackPosition(0); });
         }
     }, [playNextTrackFromPlaylist, playNextTrackFromQueue, isSoundLoaded, isPlaying]);
 
     const skipToPrevious = useCallback(async () => {
-        console.log("[PlayerContext] Action: skipToPrevious");
-        if (!playlist || playlist.length === 0 && queue.length === 0) return;
-
+        if (!playlist && queue.length === 0) return; // Если нет ни плейлиста ни очереди
         const status = await soundObjectRef.current?.getStatusAsync();
         if (status && status.isLoaded && status.positionMillis > 3000) {
             seek(0); return;
         }
-        // Логика для "назад" сложнее с очередью.
-        // Пока реализуем только для основного плейлиста.
-        // TODO: Добавить логику для возврата к предыдущему треку из очереди или к концу основного плейлиста.
-        if (currentIndex > 0 || (repeatMode === 'all' && playlist.length > 0)) {
+
+
+        if (playlist && playlist.length > 0 && (currentIndex > 0 || repeatMode === 'all')) {
             let prevIdx;
-            if (isShuffleActive) { /* ... логика шаффла для предыдущего ... */
-                if (playlist.length <= 1) { prevIdx = 0; } else { let randomIdx; do { randomIdx = Math.floor(Math.random() * playlist.length); } while (randomIdx === currentIndex && playlist.length > 1); prevIdx = randomIdx; }
+            if (isShuffleActive) {
+
+                if (playlist.length <= 1) { prevIdx = 0; }
+                else { let randomIdx; do { randomIdx = Math.floor(Math.random() * playlist.length); } while (randomIdx === currentIndex); prevIdx = randomIdx; }
             } else {
                 prevIdx = currentIndex - 1;
-                if (prevIdx < 0) prevIdx = playlist.length - 1; // Зацикливаем, если repeat all
+                if (prevIdx < 0) prevIdx = playlist.length - 1;
             }
-            setCurrentIndex(prevIdx); // Обновляем индекс ДО загрузки
-            _internalLoadAudio(playlist[prevIdx], true, false);
+            setCurrentIndex(prevIdx);
+            _internalLoadAndPlayTrack(playlist[prevIdx], true);
         } else {
-            seek(0); // Если это первый трек и нет репита, просто на начало
+            seek(0);
         }
-    }, [playlist, isShuffleActive, currentIndex, repeatMode, seek, _internalLoadAudio]);
+    }, [playlist, queue, isShuffleActive, currentIndex, repeatMode, seek, _internalLoadAndPlayTrack]);
 
+    const addToQueue = useCallback((track) => {
+        if (track && track.url) {
+            setQueue(prevQueue => {
+                const newQueue = [...prevQueue, track];
+                console.log(`[PlayerContext] Added to queue: "${track.title}". New queue length: ${newQueue.length}`);
+                return newQueue;
+            });
+        }
+    }, []);
 
-    const addToQueue = useCallback((track) => { /* ... как было ... */ }, [queue.length]);
-    const playNextInQueue = useCallback((track) => { /* ... как было ... */ }, [isPlaying, currentTrack, queue, _internalLoadAudio]);
-    const clearQueue = useCallback(() => { /* ... как было ... */ }, []);
-    const toggleLikeCurrentTrack = useCallback(async () => { /* ... как было ... */ }, [currentTrack, isLiked, _updateLikeStatus]);
-    const toggleShuffle = useCallback(() => { /* ... как было ... */ setIsShuffleActive(p => !p) }, []);
-    const cycleRepeat = useCallback(() => { /* ... как было ... */ }, [isSoundLoaded]);
+    const playNextInQueue = useCallback((track) => {
+        if (track && track.url) {
+            setQueue(prevQueue => {
+                const newQueue = [track, ...prevQueue];
+                console.log(`[PlayerContext] Added to START of queue: "${track.title}". New queue length: ${newQueue.length}`);
+                return newQueue;
+            });
+            if (!currentTrack && !isPlaying) {
+
+            }
+        }
+    }, [currentTrack, isPlaying ]);
+
+    const clearQueue = useCallback(() => { setQueue([]); console.log("[PlayerContext] Queue cleared."); }, []);
+    const toggleLikeCurrentTrack = useCallback(async () => { if (!currentTrack || !currentTrack.id) return; const newLikedState = !isLiked; setIsLiked(newLikedState); if (newLikedState) await likeTrack(currentTrack.id); else await unlikeTrack(currentTrack.id); }, [currentTrack, isLiked, _updateLikeStatus]);
+    const toggleShuffle = useCallback(() => { setIsShuffleActive(prev => !prev); }, []);
+    const cycleRepeat = useCallback(() => { setRepeatMode(prev => { const modes = ['off', 'all', 'one']; const idx = modes.indexOf(prev); const nextMode = modes[(idx + 1) % modes.length]; if (soundObjectRef.current && isSoundLoaded) soundObjectRef.current.setIsLoopingAsync(nextMode === 'one'); return nextMode; }); }, [isSoundLoaded]);
 
 
     useEffect(() => {
-        Audio.setAudioModeAsync({ /* ... */ }).catch(e => console.error("Error setAudioModeAsync",e));
+        Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true, shouldDuckAndroid: true, playThroughEarpieceAndroid: false, staysActiveInBackground: true,}).catch(e=>console.error("Failed to set audio mode", e));
         if (!soundObjectRef.current) soundObjectRef.current = new Audio.Sound();
         return () => { if (soundObjectRef.current) unloadCurrentSound(); };
     }, [unloadCurrentSound]);
@@ -347,9 +283,9 @@ export const PlayerProvider = ({ children }) => {
 
     const memoizedActions = React.useMemo(() => ({
         loadAudio, play, pause, seek,
-        playNextTrack: skipToNext, // Пользовательская кнопка "Next"
-        playPreviousTrack: skipToPrevious, // Пользовательская кнопка "Previous"
-        handleTrackActuallyFinished, // Внутренняя, для onPlaybackStatusUpdate
+        playNextTrack: skipToNext,
+        playPreviousTrack: skipToPrevious,
+        handleTrackActuallyFinished,
         toggleLikeCurrentTrack, toggleShuffle, cycleRepeat, unloadCurrentSound,
         addToQueue, playNextInQueue, clearQueue,
     }), [

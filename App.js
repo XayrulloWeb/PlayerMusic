@@ -76,20 +76,17 @@ function MainTabs() {
     );
 }
 
-// Новый компонент-обертка для навигатора, который включает MainTabs и MiniPlayer
+
 function AppStack() {
     const { currentTrack } = usePlayer(); // Получаем currentTrack из контекста
 
     return (
         <View style={{ flex: 1 }}>
-            {/* Основной Stack Navigator */}
             <Stack.Navigator screenOptions={{ headerShown: false }}>
                 <Stack.Screen name="MainFlow" options={{ headerShown: false }}>
-                    {/* Этот экран содержит MainTabs и MiniPlayer */}
                     {() => (
                         <View style={{ flex: 1 }}>
                             <MainTabs />
-                            {/* Условное отображение Мини-плеера */}
                             {currentTrack && (
                                 <View style={styles.miniPlayerContainer}>
                                     <MiniPlayer />
@@ -98,7 +95,6 @@ function AppStack() {
                         </View>
                     )}
                 </Stack.Screen>
-                {/* Модальные и детальные экраны остаются на том же уровне стека */}
                 <Stack.Screen name="Player" component={PlayerScreen} options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
                 <Stack.Screen name="AlbumDetail" component={AlbumDetailScreen} options={{ animation: 'slide_from_right' }} />
                 <Stack.Screen name="ArtistDetail" component={ArtistDetailScreen} options={{ animation: 'slide_from_right' }} />
@@ -137,7 +133,7 @@ export default function App() {
             <PlayerProvider> {/* PlayerProvider оборачивает все */}
                 <SafeAreaView style={styles.safeArea} onLayout={onLayoutRootView}>
                     <NavigationContainer>
-                        <AppStack /> {/* Используем AppStack вместо прямого Stack.Navigator */}
+                        <AppStack />
                     </NavigationContainer>
                 </SafeAreaView>
             </PlayerProvider>
@@ -160,6 +156,6 @@ const styles = StyleSheet.create({
         bottom: Platform.OS === 'android' ? 65 : 85,
         left: 0,
         right: 0,
-        zIndex: 100, // Чтобы был поверх контента табов
+        zIndex: 100,
     },
 });
