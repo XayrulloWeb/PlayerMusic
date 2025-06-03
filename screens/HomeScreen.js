@@ -1,163 +1,369 @@
-// screens/HomeScreen.js
-import React from 'react';
-import { View, Text, ScrollView, FlatList, Image, TouchableOpacity, StyleSheet, Platform, StatusBar } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import {
+    View, Text, FlatList, TouchableOpacity, Image, TextInput, StyleSheet,
+    Platform, ActivityIndicator, Alert, Button
+} from 'react-native';
+// import { Ionicons } from '@expo/vector-icons'; // Not used in this file directly, but good to keep if other parts of app use it
 import { useNavigation } from '@react-navigation/native';
+import * as MediaLibrary from 'expo-media-library';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { debounce } from 'lodash';
 
-// Данные треков (используем ваш предоставленный JSON)
-const allTracks = [
-    { "id": "track001", "title": "Midnight Cruise", "artist": "Synthwave Explorer", "album": "Neon Roads", "artwork": "https://images.unsplash.com/photo-1519681393784-d120267933ba?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8Mnx8YWJzdHJhY3QlMjBkYXJrJTIwbXVzaWN8ZW58MHx8MHx8fDA%3D&auto=format&fit=crop&w=400&q=60", "duration": 245, "url": "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3" },
-    { "id": "track002", "title": "LoFi Morning Dew", "artist": "Chill Beats Collective", "album": "Study & Relax", "artwork": "https://images.unsplash.com/photo-1470225620780-dba8ba36b745?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8Mnx8bXVzaWN8ZW58MHx8MHx8fDA%3D&auto=format&fit=crop&w=400&q=60", "duration": 190, "url": "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3" },
-    { "id": "track003", "title": "Cybernetic Dreams", "artist": "Vector Hold", "album": "Digital Frontier", "artwork": "https://images.unsplash.com/photo-1508700115892-45ecd0562ad2?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8NXx8bmVvbiUyMG11c2ljfGVufDB8fDB8fHww&auto=format&fit=crop&w=400&q=60", "duration": 210, "url": "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3" },
-    { "id": "track004", "title": "Acoustic Serenity", "artist": "Willow Creek", "album": "Nature's Harmony", "artwork": "https://images.unsplash.com/photo-1487180144351-b8472da7d491?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8M3x8YWNvdXN0aWMlMjBtdXNpY3xlbnwwfHwwfHx8MA%3D&auto=format&fit=crop&w=400&q=60", "duration": 185, "url": "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },
-    { "id": "track005", "title": "Indie Summer Anthem", "artist": "The Weekend Haze", "album": "Golden Days", "artwork": "https://images.unsplash.com/photo-1483954002438-3084c974b8is?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8MTJ8fGluZGllJTIwbXVzaWN8ZW58MHx8MHx8fDA%3D&auto=format&fit=crop&w=400&q=60", "duration": 220, "url": "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }
-];
+const ICON_COLOR_PRIMARY = '#FAFAFA';
+const ICON_COLOR_SECONDARY = '#A0A0A0';
+const ICON_COLOR_ACCENT = '#8DEEED';
+const BG_COLOR = '#030318';
+const PAGE_SIZE = 50;
+const CACHE_KEY = '@MyApp:LocalTracksFirstPage'; // Cache now stores the first page for quick initial load
 
-// Формируем секции
-const sectionsData = {
-    recentlyPlayed: allTracks.slice(0, 4).map(track => ({ ...track, type: 'Album' })),
-    madeForYou: allTracks.slice(1, 5).reverse().map(track => ({ ...track, type: 'Playlist' })),
-    newReleases: [allTracks[0], allTracks[2], allTracks[4]].map(track => ({ ...track, type: 'Single' })),
-};
+// IMPORTANT: Create this image file in your project
+// Adjust the path based on your project structure.
+// For example, if HomeScreen.js is in 'src/screens/' and assets is at root:
+// const DEFAULT_ARTWORK = require('../../assets/img/default-artwork.png');
+// Using a placeholder string for now, replace with actual require:
+const DEFAULT_ARTWORK_PLACEHOLDER_URI = 'https://cdn.pixabay.com/photo/2022/08/31/20/47/concert-7424190_1280.jpg'; // Replace with actual require statement
 
-const themeColors = {
-    primary: '#8DEEED',       // custom-primary
-    secondary: '#7037E4',     // custom-secondary
-    tertiary: '#030318',      // custom-tertiary (фон)
-    quaternary: '#FAFAFA',    // custom-quaternary (основной текст)
-    surface: '#0F0F2B',       // Предположим, это ваш 'custom-surface-raised' или аналог для фона карточек
+const HorizontalSection = React.memo(({ title, data, onCardPress }) => {
+    const renderItem = useCallback(({ item }) => (
+        <TouchableOpacity onPress={() => onCardPress(item)} style={styles.card}>
+            <Image
+                // Use item.artwork if available, otherwise use default.
+                // Replace DEFAULT_ARTWORK_PLACEHOLDER_URI with:
+                // source={item.artwork ? { uri: item.artwork } : require('../../assets/img/default-artwork.png')}
+                source={item.artwork ? { uri: item.artwork } : { uri: DEFAULT_ARTWORK_PLACEHOLDER_URI }}
+                style={styles.cardImage}
+            />
+            <Text style={styles.cardTitle} numberOfLines={1}>{item.title}</Text>
+            <Text style={styles.cardSubtitle} numberOfLines={1}>{item.artist}</Text>
+        </TouchableOpacity>
+    ), [onCardPress]);
 
-    textSecondary: '#A0A0A0', // Предположим, это для второстепенного текста (как text-neutral-400)
-};
-
-// Компонент для карточки
-const ContentCard = ({ item, onPress }) => (
-    <TouchableOpacity
-        onPress={onPress}
-        className="w-36 mr-4 bg-[#0e1133] p-3 rounded-lg shadow-md active:bg-[#0e1190]"
-    >
-        <Image
-            source={{ uri: item.artwork || 'https://via.placeholder.com/150?text=No+Art' }}
-            // bg-zinc-700 как плейсхолдер фона для Image
-            className="w-full h-32 rounded-md mb-2 bg-[#fff]"
-        />
-        <Text className="text-custom-quaternary font-semibold text-sm" numberOfLines={1}>{item.title}</Text>
-        <Text
-            className="text-neutral-400 text-xs"
-            numberOfLines={1}
-        >
-            {item.type === 'Album' || item.type === 'Single' ? item.artist : item.type}
-        </Text>
-    </TouchableOpacity>
-);
-
-// Компонент для секции
-const HorizontalSection = ({ title, data, onCardPress }) => (
-    <View className="mb-6"><Text className="text-custom-quaternary text-xl font-bold px-5 mb-3">{title}</Text><FlatList
-            data={data}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            keyExtractor={item => item.id}
-            renderItem={({ item }) => (
-                <ContentCard
-                    item={item}
-                    onPress={() => onCardPress(item, data)}
-                />
-            )}
-            contentContainerStyle={styles.flatListContentContainer}
-        />
-    </View>
-);
-
-export default function HomeScreen() {
-    const navigation = useNavigation();
-
-    const handleCardPress = (selectedTrack, playlistContext) => {
-        console.log('Card pressed:', selectedTrack.title);
-        const currentIndex = playlistContext.findIndex(track => track.id === selectedTrack.id);
-        navigation.navigate('Player', {
-            track: selectedTrack,
-            playlist: playlistContext,
-            currentIndex: currentIndex !== -1 ? currentIndex : 0,
-        });
-    };
-
-    const getGreeting = () => {
-        const hour = new Date().getHours();
-        if (hour < 12) return "Good Morning";
-        if (hour < 18) return "Good Afternoon";
-        return "Good Evening";
-    };
+    if (!data || data.length === 0) {
+        return null; // Don't render section if no data
+    }
 
     return (
-        <ScrollView
-            className="flex-1 bg-custom-tertiary" // Основной фон из Tailwind
-            style={styles.scrollViewContainer}
-            contentContainerStyle={styles.scrollViewContentContainer}
-            showsVerticalScrollIndicator={false}
-        >
-            <StatusBar barStyle="light-content" backgroundColor={themeColors.tertiary} />
-            <View className="px-5 mt-4 mb-5 flex-row justify-between items-center"> {/* Уменьшил mb до 5, добавил mt-4 */}
-                <Text className="text-custom-quaternary text-2xl font-bold">{getGreeting()}</Text>
-                <View className="flex-row">
-                    <TouchableOpacity onPress={() => console.log('Notifications pressed')} className="p-2 mr-1">
-                        <Ionicons name="notifications-outline" size={24} color={themeColors.quaternary} />
-                    </TouchableOpacity>
-                    <TouchableOpacity onPress={() => console.log('Settings pressed')} className="p-2 ml-1">
-                        <Ionicons name="settings-outline" size={24} color={themeColors.quaternary} />
-                    </TouchableOpacity>
+        <View style={styles.section}>
+            <Text style={styles.sectionTitle}>{title}</Text>
+            <FlatList
+                data={data}
+                renderItem={renderItem}
+                keyExtractor={(item) => item.id.toString()} // Ensure ID is a string
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.sectionList}
+                initialNumToRender={5}
+                maxToRenderPerBatch={5}
+                windowSize={3}
+            />
+        </View>
+    );
+});
+
+const getFormattedLocalAudioFiles = async (permission, { afterCursor } = {}) => {
+    if (permission !== 'granted') {
+        return { newTracks: [], endCursor: null, hasNextPage: false };
+    }
+    try {
+        const mediaQueryOptions = {
+            mediaType: MediaLibrary.MediaType.audio,
+            sortBy: [[MediaLibrary.SortBy.modificationTime, false]], // Newest files first
+            first: PAGE_SIZE,
+        };
+        if (afterCursor) {
+            mediaQueryOptions.after = afterCursor;
+        }
+
+        const media = await MediaLibrary.getAssetsAsync(mediaQueryOptions);
+
+        const tracks = media.assets.map(asset => ({
+            id: `local-${asset.id}`,
+            title: asset.filename.replace(/\.[^/.]+$/, "") || 'Unknown Title',
+            artist: 'Unknown Artist', // MediaLibrary.Asset doesn't reliably provide this
+            album: 'On this device',   // MediaLibrary.Asset doesn't reliably provide this
+            artwork: null, // Set to null, default artwork will be used by component
+            duration: Math.round(asset.duration),
+            url: asset.uri,
+            isLocal: true,
+            type: 'track',
+            assetId: asset.id,
+        }));
+        return { newTracks: tracks, endCursor: media.endCursor, hasNextPage: media.hasNextPage };
+    } catch (error) {
+        console.error("MediaLibrary.getAssetsAsync error:", error);
+        Alert.alert("Ошибка", "Не удалось загрузить локальные аудиофайлы из медиатеки.");
+        return { newTracks: [], endCursor: null, hasNextPage: false };
+    }
+};
+
+const HomeScreen = () => {
+    const navigation = useNavigation();
+    const [searchQuery, setSearchQuery] = useState('');
+    const [localTracks, setLocalTracks] = useState([]);
+    const [mediaLibraryPermission, setMediaLibraryPermission] = useState(null);
+
+    const [isInitialLoading, setIsInitialLoading] = useState(true);
+    const [isFetchingMore, setIsFetchingMore] = useState(false);
+
+    const [nextPageCursor, setNextPageCursor] = useState(null);
+    const [hasMore, setHasMore] = useState(true);
+    const [initialLoadAttempted, setInitialLoadAttempted] = useState(false);
+
+
+    const debouncedSetSearchQuery = useCallback(debounce(setSearchQuery, 300), []);
+
+    const requestPermissions = useCallback(async () => {
+        if (Platform.OS === 'web') {
+            setMediaLibraryPermission('granted'); // MediaLibrary not typically used on web this way
+            return;
+        }
+        const { status } = await MediaLibrary.requestPermissionsAsync();
+        setMediaLibraryPermission(status);
+        if (status !== 'granted') {
+            Alert.alert(
+                'Требуется разрешение',
+                'Для доступа к локальным аудиофайлам необходимо предоставить разрешение на медиабиблиотеку.',
+                [{ text: 'OK' }]
+            );
+        }
+    }, []);
+
+    useEffect(() => {
+        requestPermissions();
+    }, [requestPermissions]);
+
+    useEffect(() => {
+        const loadInitialTracks = async () => {
+            if (mediaLibraryPermission !== 'granted' || initialLoadAttempted) {
+                if(mediaLibraryPermission !== 'granted') setIsInitialLoading(false);
+                return;
+            }
+
+            setIsInitialLoading(true);
+            setInitialLoadAttempted(true);
+
+            try {
+                // Attempt to load the first page from cache
+                const cachedTracksString = await AsyncStorage.getItem(CACHE_KEY);
+                if (cachedTracksString) {
+                    const tracksFromCache = JSON.parse(cachedTracksString);
+                    if (tracksFromCache && tracksFromCache.length > 0) {
+                        setLocalTracks(tracksFromCache);
+                        // We don't know cursor/hasMore from cache, so we'll fetch fresh page 1 anyway
+                    }
+                }
+            } catch (e) {
+                console.warn("Failed to load initial tracks from cache", e);
+            }
+
+            // Fetch the absolute first page from MediaLibrary
+            try {
+                const { newTracks, endCursor, hasNextPage: newHasMore } = await getFormattedLocalAudioFiles(mediaLibraryPermission, { afterCursor: null });
+                setLocalTracks(newTracks); // Replace potentially cached tracks with fresh ones
+                setNextPageCursor(endCursor);
+                setHasMore(newHasMore);
+                if (newTracks.length > 0) {
+                    try {
+                        await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(newTracks));
+                    } catch (cacheError) {
+                        console.warn("Failed to save first page to cache", cacheError);
+                    }
+                } else if (localTracks.length === 0) { // If no new tracks and no cached tracks
+                    // Handled by ListEmptyComponent
+                }
+            } catch (error) {
+                console.error('Error fetching initial tracks:', error);
+                // Alert handled in getFormattedLocalAudioFiles
+            } finally {
+                setIsInitialLoading(false);
+            }
+        };
+
+        loadInitialTracks();
+    }, [mediaLibraryPermission, initialLoadAttempted]);
+
+
+    const handleLoadMore = useCallback(async () => {
+        if (isFetchingMore || !hasMore || mediaLibraryPermission !== 'granted' || !nextPageCursor) {
+            return;
+        }
+
+        setIsFetchingMore(true);
+        try {
+            const { newTracks, endCursor, hasNextPage: newHasMore } = await getFormattedLocalAudioFiles(mediaLibraryPermission, { afterCursor: nextPageCursor });
+            if (newTracks.length > 0) {
+                setLocalTracks(prev => [...prev, ...newTracks]);
+            }
+            setNextPageCursor(endCursor);
+            setHasMore(newHasMore);
+        } catch (error) {
+            console.error('Error fetching more tracks:', error);
+            // Alert handled in getFormattedLocalAudioFiles
+        } finally {
+            setIsFetchingMore(false);
+        }
+    }, [isFetchingMore, hasMore, mediaLibraryPermission, nextPageCursor]);
+
+    const filteredTracks = useMemo(() => {
+        if (!searchQuery.trim()) return localTracks;
+        const query = searchQuery.toLowerCase();
+        return localTracks.filter(t =>
+            t.title.toLowerCase().includes(query) ||
+            t.artist.toLowerCase().includes(query) ||
+            t.album.toLowerCase().includes(query)
+        );
+    }, [searchQuery, localTracks]);
+
+    const sections = useMemo(() => {
+        if (filteredTracks.length === 0 && !isInitialLoading) return []; // Return empty if no tracks and not loading
+        return [
+            // These sections are just slices of localTracks, sorted by modification time.
+            // Consider if "Popular" and "Recommended" should have different data sources or logic.
+            { id: 'recent', title: 'Недавно добавленные', data: filteredTracks.slice(0, 10) }, // "Recent" is by modification time
+            { id: 'next_up', title: 'Следующие треки', data: filteredTracks.slice(10, 20) },
+            { id: 'more_tracks', title: 'Больше треков', data: filteredTracks.slice(20, 30) },
+        ].filter(section => section.data && section.data.length > 0); // Filter out empty sections
+    }, [filteredTracks, isInitialLoading]);
+
+    const handleCardPress = useCallback((item) => {
+        // Ensure playlist for player is based on currently filtered and visible tracks
+        const playlistForPlayer = filteredTracks.filter(t => t.url && t.id);
+        const currentIndex = playlistForPlayer.findIndex(t => t.id === item.id);
+
+        if (currentIndex !== -1 && item.url) {
+            navigation.navigate('Player', { track: item, playlist: playlistForPlayer, currentIndex });
+        } else {
+            Alert.alert("Ошибка воспроизведения", "Выбранный трек не может быть воспроизведен. URL отсутствует или трек не найден в текущем списке.");
+        }
+    }, [filteredTracks, navigation]);
+
+    const renderSection = useCallback(({ item }) => (
+        <HorizontalSection
+            title={item.title}
+            data={item.data}
+            onCardPress={handleCardPress}
+        />
+    ), [handleCardPress]);
+
+    const renderListFooter = () => {
+        if (!isFetchingMore) return null;
+        return <ActivityIndicator style={{ marginVertical: 20 }} size="small" color={ICON_COLOR_ACCENT} />;
+    };
+
+    if (isInitialLoading && localTracks.length === 0) {
+        return (
+            <View style={[styles.container, styles.centered]}>
+                <ActivityIndicator size="large" color={ICON_COLOR_ACCENT} />
+            </View>
+        );
+    }
+
+    if (mediaLibraryPermission === null && Platform.OS !== 'web') { // Still waiting for permission result
+        return (
+            <View style={[styles.container, styles.centered]}>
+                <ActivityIndicator size="large" color={ICON_COLOR_ACCENT} />
+                <Text style={styles.emptyText}>Запрос разрешений...</Text>
+            </View>
+        );
+    }
+
+    if (mediaLibraryPermission !== 'granted' && Platform.OS !== 'web') {
+        return (
+            <View style={styles.container}>
+                <View style={styles.header}>
+                    <Text style={styles.headerTitle}>Главная</Text>
+                </View>
+                <View style={[styles.emptyContainer, styles.centered, {flex: 1}]}>
+                    <Text style={styles.emptyText}>
+                        Требуется разрешение на доступ к медиабиблиотеке для отображения локальных треков.
+                    </Text>
+                    <Button
+                        title="Предоставить разрешение"
+                        onPress={requestPermissions}
+                        color={ICON_COLOR_ACCENT}
+                    />
                 </View>
             </View>
-            <View className="px-5 mb-6">
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipsScrollViewContent}>
-                    {['Music', 'Podcasts', 'Audiobooks'].map(chip => (
-                        <TouchableOpacity
-                            key={chip}
-                            className="bg-[#0e1133] px-4 py-2 rounded-full mr-2 active:bg-zinc-700"
-                        >
-                            <Text className="text-custom-quaternary text-sm font-medium">{chip}</Text>
-                        </TouchableOpacity>
-                    ))}
-                </ScrollView>
+        );
+    }
+
+    return (
+        <View style={styles.container}>
+            <View style={styles.header}>
+                <Text style={styles.headerTitle}>Главная</Text>
             </View>
-            <HorizontalSection
-                title="Recently Played"
-                data={sectionsData.recentlyPlayed}
-                onCardPress={handleCardPress}
+            <TextInput
+                style={styles.searchInput}
+                placeholder="Поиск треков, артистов, альбомов..."
+                placeholderTextColor={ICON_COLOR_SECONDARY}
+                onChangeText={debouncedSetSearchQuery}
+                value={searchQuery}
             />
-            <HorizontalSection
-                title="Made For You"
-                data={sectionsData.madeForYou}
-                onCardPress={handleCardPress}
+            <FlatList
+                data={sections}
+                renderItem={renderSection}
+                keyExtractor={item => `section-${item.id}`}
+                contentContainerStyle={styles.contentContainer}
+                showsVerticalScrollIndicator={false}
+                initialNumToRender={3} // Number of sections
+                windowSize={5}
+                onEndReached={handleLoadMore}
+                onEndReachedThreshold={0.5}
+                ListFooterComponent={renderListFooter}
+                ListEmptyComponent={() => (
+                    !isInitialLoading && ( // Only show if not initial loading
+                        <View style={[styles.emptyContainer, styles.centered, {flex: 1, marginTop: 50}]}>
+                            <Text style={styles.emptyText}>
+                                {searchQuery ? "По вашему запросу ничего не найдено." : "Локальные аудиофайлы не найдены."}
+                            </Text>
+                            { !searchQuery && Platform.OS !== 'web' &&
+                                <Text style={styles.emptyTextSmall}>
+                                    Убедитесь, что у вас есть аудиофайлы на устройстве.
+                                </Text>
+                            }
+                        </View>
+                    )
+                )}
             />
-            <HorizontalSection
-                title="New Releases"
-                data={sectionsData.newReleases}
-                onCardPress={handleCardPress}
-            />
-        </ScrollView>
+        </View>
     );
-}
+};
 
 const styles = StyleSheet.create({
-    scrollViewContainer: {
-        // paddingTop для iOS, если используется SafeAreaView или аналогичная логика на уровне App.js
-        // Для Android StatusBar.currentHeight может быть использован, если нет глобального paddingTop
-        // Если App.js уже обрабатывает отступы для StatusBar/Notch, этот paddingTop может быть не нужен.
-        // Я предполагаю, что App.js добавляет pt-12 (что ~48dp), что может быть многовато для контента
-        // Если ваш `pt-12` в App.js - это `paddingTop`, то здесь не нужно. Если это `marginTop`, то нужно.
+    container: { flex: 1, backgroundColor: BG_COLOR, paddingTop: Platform.OS === 'android' ? 25 : 50 }, // Adjust top padding for status bar
+    centered: {
+        justifyContent: 'center',
+        alignItems: 'center',
     },
-    scrollViewContentContainer: {
-        paddingBottom: 90, // Увеличил отступ снизу для таб-бара
-        // Если App.js не задает paddingTop для ScrollView через родительский View, то здесь нужен:
-        // paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight + 10 : 10,
-        // Убираем paddingTop если он глобально в App.js, чтобы избежать двойного отступа
+    header: { paddingHorizontal: 20, marginBottom: 15, marginTop: 10 },
+    headerTitle: { fontSize: 28, fontWeight: 'bold', color: ICON_COLOR_PRIMARY },
+    searchInput: {
+        backgroundColor: '#1E1E1E',
+        color: ICON_COLOR_PRIMARY,
+        paddingHorizontal: 15,
+        paddingVertical: 12,
+        borderRadius: 8,
+        marginHorizontal: 20,
+        marginBottom: 20,
+        fontSize: 16,
     },
-    flatListContentContainer: {
-        paddingHorizontal: 20,
-        paddingRight: Platform.OS === 'ios' ? 20 : 30, // Небольшая коррекция для тени на Android
+    section: { marginBottom: 25 },
+    sectionTitle: {
+        fontSize: 20,
+        fontWeight: 'bold',
+        color: ICON_COLOR_PRIMARY,
+        marginLeft: 20,
+        marginBottom: 12,
     },
-    chipsScrollViewContent: {
-        paddingRight: 10, // Чтобы последний чипс не прилипал к краю
-    }
+    sectionList: { paddingHorizontal: 20 },
+    card: { width: 130, marginRight: 15 }, // Slightly wider card
+    cardImage: { width: 120, height: 120, borderRadius: 8, backgroundColor: '#2a2a3a' }, // Added bg color for image loading
+    cardTitle: { fontSize: 14, color: ICON_COLOR_PRIMARY, marginTop: 8, fontWeight: '500' },
+    cardSubtitle: { fontSize: 12, color: ICON_COLOR_SECONDARY, marginTop: 2 },
+    contentContainer: { paddingBottom: 90 }, // For bottom tab navigator or player controls
+    emptyContainer: { alignItems: 'center', paddingHorizontal: 20 },
+    emptyText: { fontSize: 18, color: ICON_COLOR_SECONDARY, textAlign: 'center', marginBottom: 15 },
+    emptyTextSmall: { fontSize: 14, color: ICON_COLOR_SECONDARY, textAlign: 'center', marginBottom: 20 },
 });
+
+export default React.memo(HomeScreen);

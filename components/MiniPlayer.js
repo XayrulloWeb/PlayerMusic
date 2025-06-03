@@ -10,7 +10,7 @@ import Slider from '@react-native-community/slider';
 const ICON_COLOR_TEXT_PRIMARY = '#FAFAFA';
 const ICON_COLOR_ACCENT = '#8DEEED';
 const PROGRESS_BAR_BACKGROUND = '#27272a';
-const MINI_PLAYER_BACKGROUND_COLOR = 'rgba(40, 94, 172, 0.85)';
+const MINI_PLAYER_BACKGROUND_COLOR = 'rgba(1,28,57,0.85)';
 const MINI_PLAYER_SHADOW_COLOR_IOS = 'rgba(15, 15, 18, 0.4)';
 
 const MiniPlayerFunc = () => {

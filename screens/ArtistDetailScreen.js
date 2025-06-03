@@ -1,164 +1,186 @@
-// screens/ArtistDetailScreen.js
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect, useState, useMemo } from 'react';
 import {
-    View, Text, TouchableOpacity, Platform,
-    StatusBar, Image, FlatList
+    View, Text, TouchableOpacity, Image, FlatList, Alert, ActivityIndicator, StyleSheet
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRoute, useNavigation } from '@react-navigation/native';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
+import { StatusBar } from 'expo-status-bar';
+import TrackListItem from '../components/TrackListItem';
+import { allTracksData as globalAllTracks } from './LibraryScreen';
 
 const ICON_COLOR_PRIMARY = '#FAFAFA';
 const ICON_COLOR_ACCENT = '#8DEEED';
-const TEXT_ON_ACCENT_BUTTON_COLOR = '#030318';
+const TEXT_COLOR_ON_ACCENT = '#030318';
+const BG_COLOR = '#030318';
 const ICON_COLOR_SECONDARY = '#A0A0A0';
+const DEFAULT_ALBUM_ARTWORK = 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=200&q=60';
 
-const ArtistDetailScreen = () => {
+const MemoizedTrackListItem = React.memo(TrackListItem);
+
+const AlbumDetailScreen = () => {
     const route = useRoute();
     const navigation = useNavigation();
+    const insets = useSafeAreaInsets();
+    const albumId = route.params?.albumId?.toString();
+    const [albumTracks, setAlbumTracks] = useState([]);
+    const [albumDetails, setAlbumDetails] = useState(null);
+    const [isLoading, setIsLoading] = useState(true);
 
-    const params = route.params || {};
-    const {
-        artistName = "Artist",
-        tracks = [],
-        artwork
-    } = params;
-
-    const handlePlayTrack = useCallback((selectedTrack, index) => {
-        if (!selectedTrack || !selectedTrack.url) return;
-        navigation.navigate('Player', {
-            track: selectedTrack,
-            playlist: tracks.filter(t => t && t.url),
-            currentIndex: index,
-        });
-    }, [navigation, tracks]);
-
-    const handlePlayAllArtistTracks = useCallback(() => {
-        const playableTracks = tracks.filter(t => t && t.url);
-        if (playableTracks.length > 0) {
-            handlePlayTrack(playableTracks[0], tracks.findIndex(t => t.id === playableTracks[0].id));
+    const fetchAlbumDetails = useCallback(() => {
+        if (!albumId) {
+            Alert.alert("Ошибка", "ID альбома не предоставлен.", [{ text: "OK", onPress: () => navigation.goBack() }]);
+            setIsLoading(false);
+            return;
         }
-    }, [tracks, handlePlayTrack]);
-
-    const handleShuffleArtistTracks = useCallback(() => {
-        const playableTracks = tracks.filter(t => t && t.url);
-        if (playableTracks.length > 0) {
-            const shuffledPlaylist = [...playableTracks].sort(() => Math.random() - 0.5);
-            navigation.navigate('Player', {
-                track: shuffledPlaylist[0],
-                playlist: shuffledPlaylist,
-                currentIndex: 0,
-            });
+        setIsLoading(true);
+        try {
+            const tracks = globalAllTracks.filter(t => t.albumId === albumId);
+            if (tracks.length > 0) {
+                setAlbumTracks(tracks);
+                setAlbumDetails({
+                    id: albumId,
+                    name: tracks[0].album || 'Unknown Album',
+                    artist: tracks[0].artist || 'Unknown Artist',
+                    artwork: tracks[0].artwork || DEFAULT_ALBUM_ARTWORK,
+                });
+            } else {
+                Alert.alert("Ошибка", "Альбом не найден.", [{ text: "OK", onPress: () => navigation.goBack() }]);
+                setAlbumDetails(null);
+            }
+        } catch (error) {
+            Alert.alert("Ошибка", "Не удалось загрузить альбом.");
         }
-    }, [tracks, navigation]);
+        setIsLoading(false);
+    }, [albumId, navigation]);
 
-    const renderTrackItem = ({ item, index }) => (
-        <TouchableOpacity
+    useEffect(() => {
+        fetchAlbumDetails();
+        return () => {
+            setAlbumTracks([]);
+            setAlbumDetails(null);
+        };
+    }, [fetchAlbumDetails]);
+
+    const computedTracks = useMemo(() => albumTracks, [albumTracks]);
+
+    const handlePlayTrack = useCallback((track, index) => {
+        if (!track?.url || !track.id) {
+            Alert.alert("Ошибка", "Трек не может быть воспроизведен.");
+            return;
+        }
+        navigation.navigate('Player', { track, playlist: computedTracks.filter(t => t.url && t.id), currentIndex: index });
+    }, [computedTracks, navigation]);
+
+    const handlePlayAll = useCallback(() => {
+        const playableTracks = computedTracks.filter(t => t.url && t.id);
+        if (playableTracks.length > 0) {
+            handlePlayTrack(playableTracks[0], 0);
+        } else {
+            Alert.alert("Ошибка", "В альбоме нет доступных треков.");
+        }
+    }, [computedTracks, handlePlayTrack]);
+
+    const handleShuffle = useCallback(() => {
+        const playableTracks = computedTracks.filter(t => t.url && t.id);
+        if (playableTracks.length > 0) {
+            const shuffled = [...playableTracks].sort(() => Math.random() - 0.5);
+            navigation.navigate('Player', { track: shuffled[0], playlist: shuffled, currentIndex: 0 });
+        } else {
+            Alert.alert("Ошибка", "В альбоме нет треков для перемешивания.");
+        }
+    }, [computedTracks, navigation]);
+
+    const renderTrackItem = useCallback(({ item, index }) => (
+        <MemoizedTrackListItem
+            item={item}
+            index={index}
             onPress={() => handlePlayTrack(item, index)}
-            className="flex-row items-center p-3 mb-1.5 bg-custom-surface/10 rounded-lg active:bg-custom-surface/20"
-        >
-            {item.artwork && (
-                <Image source={{uri: item.artwork}} className="w-10 h-10 rounded mr-3 bg-zinc-700" />
-            )}
-            {!item.artwork && (
-                <Text className="text-sm text-custom-quaternary/70 w-8 text-center tabular-nums">
-                    {index + 1}
-                </Text>
-            )}
-            <View className="flex-1 ml-1">
-                <Text className="text-base font-medium text-custom-quaternary" numberOfLines={1}>
-                    {item.title || "Unknown Track"}
-                </Text>
-                {item.album && (
-                    <Text className="text-xs text-custom-quaternary/60" numberOfLines={1}>
-                        {item.album}
-                    </Text>
-                )}
+            onMoreOptions={() => Alert.alert("Опции", "Функции трека в разработке.")} // Placeholder
+            showTrackNumber={true}
+            showArtwork={false}
+        />
+    ), [handlePlayTrack]);
+
+    if (isLoading) {
+        return (
+            <View style={[styles.container, { paddingTop: insets.top }]}>
+                <StatusBar style="light" />
+                <ActivityIndicator size="large" color={ICON_COLOR_ACCENT} />
             </View>
-            <TouchableOpacity className="p-2" onPress={() => console.log("More options for track:", item.title)}>
-                <MaterialCommunityIcons name="dots-horizontal" size={22} color={ICON_COLOR_SECONDARY} />
-            </TouchableOpacity>
-        </TouchableOpacity>
-    );
+        );
+    }
 
-    const ListHeader = () => (
-        <View className="items-center mb-4">
-            {artwork && (
-                <Image
-                    source={{ uri: artwork }}
-                    // Круглый арт для артиста
-                    className="w-40 h-40 md:w-48 md:h-48 rounded-full shadow-lg my-5 bg-zinc-700"
-                />
-            )}
-            <Text className="text-2xl md:text-3xl font-bold text-custom-quaternary text-center px-4" numberOfLines={2}>
-                {artistName}
-            </Text>
-            <Text className="text-sm text-custom-quaternary/70 mt-1 mb-5">
-                {tracks.length} {tracks.length === 1 ? "song" : "songs"}
-            </Text>
-
-            {tracks && tracks.length > 0 && (
-                <View className="flex-row w-full px-4 space-x-3 mb-6">
-                    <TouchableOpacity
-                        onPress={handlePlayAllArtistTracks}
-                        className="flex-1 bg-custom-primary py-3.5 rounded-full flex-row items-center justify-center active:opacity-80 shadow-md"
-                    >
-                        <Ionicons name="play" size={20} color={TEXT_ON_ACCENT_BUTTON_COLOR} className="mr-1.5" />
-                        <Text className="font-semibold text-base" style={{ color: TEXT_ON_ACCENT_BUTTON_COLOR }}>
-                            Play
-                        </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                        onPress={handleShuffleArtistTracks}
-                        className="flex-1 bg-custom-surface py-3.5 rounded-full flex-row items-center justify-center active:opacity-80 shadow-md border border-custom-border"
-                    >
-                        <Ionicons name="shuffle" size={20} color={ICON_COLOR_PRIMARY} className="mr-1.5" />
-                        <Text className="text-custom-quaternary font-semibold text-base">Shuffle</Text>
-                    </TouchableOpacity>
-                </View>
-            )}
-            {tracks && tracks.length > 0 && (
-                <Text className="text-lg font-semibold text-custom-quaternary self-start px-4 mb-2">
-                    Popular Tracks
-                </Text>
-            )}
-        </View>
-    );
+    if (!albumDetails) {
+        return (
+            <View style={[styles.container, { paddingTop: insets.top }]}>
+                <StatusBar style="light" />
+                <Text style={styles.errorText}>Альбом не найден.</Text>
+            </View>
+        );
+    }
 
     return (
-        <View className="flex-1 bg-custom-tertiary">
-            <StatusBar barStyle="light-content" backgroundColor="transparent" translucent={true} />
-            <View className={`flex-row items-center justify-between px-3 android:pt-10 ${Platform.OS === 'ios' ? 'pt-12' : 'pt-4'} pb-3 z-10 bg-custom-tertiary`}>
-                <TouchableOpacity onPress={() => navigation.goBack()} className="p-2 rounded-full active:bg-custom-surface/50">
-                    <Ionicons name="arrow-back" size={26} color={ICON_COLOR_PRIMARY} />
-                </TouchableOpacity>
-                <Text className="flex-1 text-lg font-semibold text-custom-quaternary text-center mx-2" numberOfLines={1}>
-                    {artistName}
-                </Text>
-                <TouchableOpacity className="p-2 rounded-full active:bg-custom-surface/50">
-                    <View className="w-[26px]" />
+        <View style={[styles.container, { paddingTop: insets.top }]}>
+            <StatusBar style="light" />
+            <View style={styles.header}>
+                <TouchableOpacity onPress={() => navigation.goBack()}>
+                    <Ionicons name="chevron-back-outline" size={28} color={ICON_COLOR_PRIMARY} />
                 </TouchableOpacity>
             </View>
-
-            {tracks && tracks.length > 0 ? (
-                <FlatList
-                    data={tracks}
-                    renderItem={renderTrackItem}
-                    keyExtractor={(item, index) => item.id?.toString() || `track-${index}`}
-                    ListHeaderComponent={ListHeader}
-                    contentContainerStyle={{ paddingHorizontal: Platform.OS === 'web' ? 0 : 16, paddingBottom: 90 }}
-                    showsVerticalScrollIndicator={false}
-                />
-            ) : (
-                <View className="flex-1 justify-center items-center px-4">
-                    <ListHeader />
-                    <MaterialCommunityIcons name="account-music-outline" size={48} color={ICON_COLOR_SECONDARY} />
-                    <Text className="text-custom-quaternary/70 mt-4 text-lg text-center">
-                        No popular tracks found for this artist.
-                    </Text>
+            <View style={styles.coverContainer}>
+                <Image source={{ uri: albumDetails.artwork }} style={styles.coverImage} />
+                <View style={styles.infoContainer}>
+                    <Text style={styles.titleText}>{albumDetails.name}</Text>
+                    <Text style={styles.artistText}>{albumDetails.artist}</Text>
+                    <Text style={styles.statsText}>{albumTracks.length} треков</Text>
                 </View>
-            )}
+            </View>
+            <View style={styles.buttonContainer}>
+                <TouchableOpacity style={styles.playButton} onPress={handlePlayAll}>
+                    <Ionicons name="play-outline" size={24} color={TEXT_COLOR_ON_ACCENT} />
+                    <Text style={styles.playButtonText}>Play</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.shuffleButton} onPress={handleShuffle}>
+                    <Ionicons name="shuffle-outline" size={24} color={ICON_COLOR_ACCENT} />
+                </TouchableOpacity>
+            </View>
+            <FlatList
+                data={computedTracks}
+                renderItem={renderTrackItem}
+                keyExtractor={(item, index) => `track-${item.id}-${index}`}
+                ListEmptyComponent={() => (
+                    <View style={styles.emptyState}>
+                        <Text style={styles.emptyStateText}>Нет треков в альбоме.</Text>
+                    </View>
+                )}
+                contentContainerStyle={{ paddingBottom: 90 }}
+                initialNumToRender={10}
+                windowSize={5}
+            />
         </View>
     );
 };
 
-export default ArtistDetailScreen;
+const styles = StyleSheet.create({
+    container: { flex: 1, backgroundColor: BG_COLOR },
+    header: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 10 },
+    coverContainer: { alignItems: 'center', marginVertical: 20 },
+    coverImage: { width: 150, height: 150, borderRadius: 12 },
+    infoContainer: { alignItems: 'center', marginTop: 10 },
+    titleText: { fontSize: 24, fontWeight: 'bold', color: ICON_COLOR_PRIMARY },
+    artistText: { fontSize: 16, color: ICON_COLOR_SECONDARY, marginTop: 5 },
+    statsText: { fontSize: 14, color: ICON_COLOR_SECONDARY, marginTop: 5 },
+    buttonContainer: { flexDirection: 'row', justifyContent: 'center', marginBottom: 20 },
+    playButton: {
+        flexDirection: 'row', alignItems: 'center', backgroundColor: ICON_COLOR_ACCENT,
+        paddingVertical: 10, paddingHorizontal: 20, borderRadius: 8, marginRight: 10,
+    },
+    playButtonText: { color: TEXT_COLOR_ON_ACCENT, fontSize: 16, marginLeft: 5 },
+    shuffleButton: { padding: 10, borderRadius: 8, borderWidth: 1, borderColor: ICON_COLOR_ACCENT },
+    emptyState: { alignItems: 'center', marginTop: 20 },
+    emptyStateText: { fontSize: 16, color: ICON_COLOR_SECONDARY },
+    errorText: { fontSize: 18, color: ICON_COLOR_SECONDARY, textAlign: 'center', marginTop: 20 },
+});
+
+export default React.memo(AlbumDetailScreen);

@@ -1,21 +1,15 @@
-// App.js
 import './global.css';
-
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, Platform, StyleSheet }
-    from 'react-native';
+import { View, Platform, StyleSheet } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import { GestureHandlerRootView } from 'react-native-gesture-handler'; // Add this
 import * as SplashScreen from 'expo-splash-screen';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
-
-// Контекст и Компоненты
-import { PlayerProvider, usePlayer } from './context/PlayerContext';
+import { PlayerProvider } from './context/PlayerContext';
 import MiniPlayer from './components/MiniPlayer';
-
-// Экраны
 import HomeScreen from './screens/HomeScreen';
 import SearchScreen from './screens/SearchScreen';
 import LibraryScreen from './screens/LibraryScreen';
@@ -23,7 +17,7 @@ import PlayerScreen from './screens/PlayerScreen';
 import AlbumDetailScreen from './screens/AlbumDetailScreen';
 import ArtistDetailScreen from './screens/ArtistDetailScreen';
 import PlaylistDetailScreen from './screens/PlaylistDetailScreen';
-
+import { usePlayer } from './context/PlayerContext';
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
@@ -33,7 +27,7 @@ const APP_THEME = {
     tabBarBackground: '#0F0F2B',
     tabBarBorder: '#1A1A3D',
     appBackground: '#030318',
-    textPrimary: '#FAFAFA'
+    textPrimary: '#FAFAFA',
 };
 
 SplashScreen.preventAutoHideAsync();
@@ -48,25 +42,12 @@ function MainTabs() {
                     if (route.name === 'Home') iconName = focused ? 'home' : 'home-outline';
                     else if (route.name === 'Search') iconName = focused ? 'search' : 'search-outline';
                     else if (route.name === 'LibraryTab') iconName = focused ? 'library' : 'library-outline';
-
-                    if (!iconName) return <Ionicons name="help-circle-outline" size={size} color={color} />;
-                    return <Ionicons name={iconName} size={size} color={color} />;
+                    return <Ionicons name={iconName || 'help-circle-outline'} size={size} color={color} />;
                 },
                 tabBarActiveTintColor: APP_THEME.accentPrimary,
                 tabBarInactiveTintColor: APP_THEME.textSecondary,
-                tabBarStyle: {
-                    backgroundColor: APP_THEME.tabBarBackground,
-                    borderTopColor: Platform.OS === 'ios' ? APP_THEME.tabBarBackground : APP_THEME.tabBarBorder,
-                    borderTopWidth: Platform.OS === 'ios' ? 0 : 1,
-                    height: Platform.OS === 'android' ? 65 : 85, // Таббар
-                    paddingTop: Platform.OS === 'android' ? 5 : 10,
-                    paddingBottom: Platform.OS === 'android' ? 5 : 30,
-                },
-                tabBarLabelStyle: {
-                    fontSize: 10,
-                    fontWeight: '600',
-                    marginBottom: Platform.OS === 'android' ? 5 : -10,
-                },
+                tabBarStyle: styles.tabBar,
+                tabBarLabelStyle: styles.tabBarLabel,
             })}
         >
             <Tab.Screen name="Home" component={HomeScreen} />
@@ -76,18 +57,17 @@ function MainTabs() {
     );
 }
 
-
 function AppStack() {
-    const { currentTrack } = usePlayer(); // Получаем currentTrack из контекста
+    const { currentTrack } = usePlayer();
 
     return (
-        <View style={{ flex: 1 }}>
+        <View style={styles.stackContainer}>
             <Stack.Navigator screenOptions={{ headerShown: false }}>
-                <Stack.Screen name="MainFlow" options={{ headerShown: false }}>
+                <Stack.Screen name="MainFlow">
                     {() => (
-                        <View style={{ flex: 1 }}>
+                        <View style={styles.mainFlowContainer}>
                             <MainTabs />
-                            {currentTrack && (
+                            {currentTrack?.url && (
                                 <View style={styles.miniPlayerContainer}>
                                     <MiniPlayer />
                                 </View>
@@ -104,15 +84,18 @@ function AppStack() {
     );
 }
 
-
 export default function App() {
     const [appIsReady, setAppIsReady] = useState(false);
 
     useEffect(() => {
         async function prepare() {
-            try { console.log("App preparation: Done."); }
-            catch (e) { console.warn("App preparation error:", e); }
-            finally { setAppIsReady(true); }
+            try {
+                // Подготовка приложения (например, загрузка шрифтов)
+            } catch (e) {
+                // Логирование ошибок в продакшене через Sentry
+            } finally {
+                setAppIsReady(true);
+            }
         }
         prepare();
     }, []);
@@ -120,7 +103,6 @@ export default function App() {
     const onLayoutRootView = useCallback(async () => {
         if (appIsReady) {
             await SplashScreen.hideAsync();
-            console.log("Splash screen: Hidden.");
         }
     }, [appIsReady]);
 
@@ -129,33 +111,43 @@ export default function App() {
     }
 
     return (
-        <SafeAreaProvider>
-            <PlayerProvider> {/* PlayerProvider оборачивает все */}
-                <SafeAreaView style={styles.safeArea} onLayout={onLayoutRootView}>
-                    <NavigationContainer>
-                        <AppStack />
-                    </NavigationContainer>
-                </SafeAreaView>
-            </PlayerProvider>
-        </SafeAreaProvider>
+        <GestureHandlerRootView style={{ flex: 1 }}> {/* Add this */}
+            <SafeAreaProvider>
+                <PlayerProvider>
+                    <SafeAreaView style={styles.safeArea} onLayout={onLayoutRootView}>
+                        <NavigationContainer onError={(e) => console.error('Navigation error:', e)}>
+                            <AppStack />
+                        </NavigationContainer>
+                    </SafeAreaView>
+                </PlayerProvider>
+            </SafeAreaProvider>
+        </GestureHandlerRootView>
     );
 }
 
 const styles = StyleSheet.create({
-    rootView: {
-        flex: 1,
-        backgroundColor: APP_THEME.appBackground,
-    },
-    safeArea: {
-        flex: 1,
-        backgroundColor: APP_THEME.appBackground,
-    },
+    rootView: { flex: 1, backgroundColor: APP_THEME.appBackground },
+    safeArea: { flex: 1, backgroundColor: APP_THEME.appBackground },
+    stackContainer: { flex: 1 },
+    mainFlowContainer: { flex: 1 },
     miniPlayerContainer: {
         position: 'absolute',
-        // Высота таб-бара (подберите точное значение для вашего tabBarStyle)
         bottom: Platform.OS === 'android' ? 65 : 85,
         left: 0,
         right: 0,
         zIndex: 100,
+    },
+    tabBar: {
+        backgroundColor: APP_THEME.tabBarBackground,
+        borderTopColor: Platform.OS === 'ios' ? APP_THEME.tabBarBackground : APP_THEME.tabBarBorder,
+        borderTopWidth: Platform.OS === 'ios' ? 0 : 1,
+        height: Platform.OS === 'android' ? 65 : 85,
+        paddingTop: Platform.OS === 'android' ? 5 : 10,
+        paddingBottom: Platform.OS === 'android' ? 5 : 30,
+    },
+    tabBarLabel: {
+        fontSize: 10,
+        fontWeight: '600',
+        marginBottom: Platform.OS === 'android' ? 5 : -10,
     },
 });

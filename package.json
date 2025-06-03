@@ -17,20 +17,26 @@
     "@react-navigation/native-stack": "^7.3.13",
     "expo": "~53.0.9",
     "expo-av": "~15.1.4",
+    "expo-media-library": "~17.1.6",
     "expo-splash-screen": "~0.30.8",
     "expo-status-bar": "~2.2.3",
+    "lodash": "^4.17.21",
     "nativewind": "^4.1.23",
     "react": "19.0.0",
     "react-native": "0.79.2",
     "react-native-get-random-values": "~1.11.0",
-    "react-native-reanimated": "^3.17.5",
+    "react-native-reanimated": "~3.17.4",
     "react-native-safe-area-context": "^5.4.1",
     "tailwindcss": "^3.4.17",
     "uuid": "^11.1.0",
-    "expo-media-library": "~17.1.6"
+    "expo-haptics": "~14.1.4",
+    "react-native-gesture-handler": "~2.24.0",
+    "expo-audio": "~0.4.5",
+    "expo-notifications": "~0.31.2"
   },
   "devDependencies": {
-    "@babel/core": "^7.20.0"
+    "@babel/core": "^7.20.0",
+    "@types/lodash": "^4.17.17"
   },
   "private": true
 }
