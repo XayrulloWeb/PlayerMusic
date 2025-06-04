@@ -32,7 +32,8 @@
     "expo-haptics": "~14.1.4",
     "react-native-gesture-handler": "~2.24.0",
     "expo-audio": "~0.4.5",
-    "expo-notifications": "~0.31.2"
+    "expo-notifications": "~0.31.2",
+    "expo-dev-client": "~5.1.8"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",
